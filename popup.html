@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TELESPOT-NUMSINT</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>TELESPOT-NUMSINT</h1>
+      <p class="subtitle">Phone Number Intelligence Search</p>
+    </header>
+
+    <div class="input-section">
+      <label for="phoneInput">Enter Phone Number</label>
+      <input
+        type="tel"
+        id="phoneInput"
+        placeholder="555-555-1234"
+        autocomplete="off"
+      >
+      <small>Enter any format - we'll generate 10 search variations</small>
+    </div>
+
+    <div class="country-section">
+      <label for="countryCode">Country Code</label>
+      <select id="countryCode">
+        <optgroup label="Americas">
+          <option value="1" selected>+1 (US/Canada)</option>
+          <option value="52">+52 (Mexico)</option>
+          <option value="55">+55 (Brazil)</option>
+          <option value="54">+54 (Argentina)</option>
+          <option value="57">+57 (Colombia)</option>
+        </optgroup>
+        <optgroup label="Europe">
+          <option value="44">+44 (UK)</option>
+          <option value="49">+49 (Germany)</option>
+          <option value="33">+33 (France)</option>
+          <option value="39">+39 (Italy)</option>
+          <option value="34">+34 (Spain)</option>
+          <option value="31">+31 (Netherlands)</option>
+          <option value="48">+48 (Poland)</option>
+          <option value="46">+46 (Sweden)</option>
+          <option value="41">+41 (Switzerland)</option>
+        </optgroup>
+        <optgroup label="Asia-Pacific">
+          <option value="81">+81 (Japan)</option>
+          <option value="86">+86 (China)</option>
+          <option value="91">+91 (India)</option>
+          <option value="82">+82 (South Korea)</option>
+          <option value="61">+61 (Australia)</option>
+          <option value="65">+65 (Singapore)</option>
+          <option value="63">+63 (Philippines)</option>
+          <option value="66">+66 (Thailand)</option>
+          <option value="84">+84 (Vietnam)</option>
+        </optgroup>
+        <optgroup label="Middle East & Africa">
+          <option value="7">+7 (Russia)</option>
+          <option value="971">+971 (UAE)</option>
+          <option value="966">+966 (Saudi Arabia)</option>
+          <option value="20">+20 (Egypt)</option>
+          <option value="27">+27 (South Africa)</option>
+          <option value="234">+234 (Nigeria)</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="engine-section">
+      <label for="searchEngine">Search Engine</label>
+      <select id="searchEngine">
+        <option value="google" selected>Google</option>
+        <option value="bing">Bing</option>
+        <option value="duckduckgo">DuckDuckGo</option>
+      </select>
+    </div>
+
+    <button id="searchBtn" class="search-btn">
+      <span class="btn-icon">&#128269;</span>
+      Search All Formats
+    </button>
+
+    <div id="formatsPreview" class="formats-preview hidden">
+      <h3>Search Formats</h3>
+      <div id="formatsList" class="formats-list"></div>
+    </div>
+
+    <div id="resultsSection" class="results-section hidden">
+      <h3>Search Progress</h3>
+      <div id="progressBar" class="progress-bar">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      <p id="progressText" class="progress-text">0 / 10 searches completed</p>
+
+      <div id="summarySection" class="summary-section hidden">
+        <h3>Summary</h3>
+        <div id="summaryContent" class="summary-content"></div>
+      </div>
+    </div>
+
+    <footer>
+      <p>TELESPOT-NUMSINT v1.1</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
