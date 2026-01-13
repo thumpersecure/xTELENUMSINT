@@ -1,0 +1,237 @@
+= Telespot OSINT Research Wiki =
+
+────────────────────────────────────────────────────────────────────
+Phone-Number-Centric Open-Source Intelligence Tooling
+────────────────────────────────────────────────────────────────────
+
+'''Project Scope'''  
+Architecture • Methodology • Ethics • Performance • Future Direction  
+
+'''Audience'''  
+OSINT practitioners, security researchers, investigators, developers
+
+---
+
+== Overview ==
+
+'''Telespot''' is a phone-number-centric open-source intelligence (OSINT) ecosystem designed to automate early-stage reconnaissance while preserving analyst judgment, transparency, and ethical constraints.
+
+Unlike traditional OSINT frameworks that treat phone numbers as secondary attributes, Telespot elevates the phone number to a '''first-class investigative entity'''.
+
+The ecosystem is composed of three interoperable tools:
+
+┌─────────────┐  
+│  Telespot   │  Python CLI • Foundational  
+└──────┬──────┘  
+       │  
+┌──────▼──────┐  
+│ TeleSpotter │  Rust • High-Performance  
+└──────┬──────┘  
+       │  
+┌──────▼──────┐  
+│ TeleSpotXX  │  Web Platform • Real-Time  
+└─────────────┘  
+
+Each layer builds upon the previous one, increasing speed, scalability, and accessibility without obscuring methodology.
+
+---
+
+== Purpose and Scope ==
+
+Phone numbers are persistent identifiers embedded throughout modern digital infrastructure, including:
+
+Telecommunications systems  
+Account authentication and recovery flows  
+Messaging platforms and social networks  
+Online marketplaces and business directories  
+
+Because phone numbers are reused across services and retained for long periods, they represent a high-value pivot point in OSINT investigations.
+
+'''Telespot addresses a specific gap:'''
+
+Early-stage phone-number triage is slow, manual, and error-prone. Investigators must normalize formats, query multiple engines, interpret fragmented results, and reconcile contradictions across sources.
+
+Telespot reverses the traditional OSINT model by starting with the phone number itself and automating repetitive reconnaissance tasks.
+
+---
+
+== Design Philosophy ==
+
+The Telespot ecosystem adheres to a consistent investigative philosophy.
+
+────────────────────────────────────────  
+• Phone numbers are primary entities  
+• Automation reduces friction, not judgment  
+• Correlation over attribution  
+• Signals over certainty  
+• Speed and stealth are explicit trade-offs  
+• Transparency over abstraction  
+────────────────────────────────────────  
+
+The tools intentionally avoid claims of identity resolution. Instead, they surface repeating patterns that assist analysts in deciding whether deeper investigation is warranted.
+
+---
+
+== Tooling ==
+
+=== Telespot (Python) ===
+
+Telespot is the foundational implementation of the project.
+
+It is a single-script Python tool designed to run locally with minimal configuration and maximal transparency.
+
+'''Core functionality'''
+
+Automatic generation of up to ten phone-number format permutations  
+Multi-engine querying across Google, Bing, DuckDuckGo, and optional Dehashed  
+Pattern extraction focused on names, locations, and usernames  
+Correlation of repeated identifiers across engines and formats  
+
+'''Execution modes'''
+
+Standard Mode  
+Optimized for stealth using randomized delays, user-agent rotation, and request spacing. Typical runtime is approximately sixty seconds.
+
+Fast Mode (`telespotx.py`)  
+Uses asynchronous execution and parallel requests. Optimized for U.S. numbers. Typical runtime is approximately five seconds, with increased detection risk.
+
+This dual-mode design reflects real-world OSINT operational constraints.
+
+---
+
+=== TeleSpotter (Rust) ===
+
+TeleSpotter is a ground-up rewrite focused on performance, stability, and modularity.
+
+Implemented in Rust, it uses a fully asynchronous architecture.
+
+┌───────────────┐  
+│ Phone Parsing │  
+└──────┬────────┘  
+       │  
+┌──────▼────────┐  
+│ Search Engine │  
+│   Execution   │  
+└──────┬────────┘  
+       │  
+┌──────▼────────┐  
+│ Pattern &     │  
+│ Signal Logic  │  
+└───────────────┘  
+
+'''Key enhancements'''
+
+Asynchronous execution using tokio and reqwest  
+Expanded pattern extraction including email addresses  
+Integration with Sherlock, Blackbird, and email2phonenumber  
+Direct querying of multiple people-lookup databases  
+Advanced anti-detection logic with exponential backoff  
+
+'''Documented improvements'''
+
+Execution time reduced from ~65 seconds to ~18 seconds  
+Memory usage reduced from ~48 MB to ~8 MB  
+
+TeleSpotter is suitable for high-volume workflows and constrained environments.
+
+---
+
+=== TeleSpotXX (Web Platform) ===
+
+TeleSpotXX extends the ecosystem into a real-time web application.
+
+It combines the capabilities of Telespot and TeleSpotter behind an accessible interface.
+
+'''Architecture'''
+
+┌──────────────┐     WebSockets     ┌──────────────┐  
+│  Front-End   │ ◀───────────────▶ │   Back-End   │  
+│ Tailwind UI  │                   │   Flask API  │  
+└──────────────┘                   └──────┬───────┘  
+                                           │  
+                                 ┌─────────▼─────────┐  
+                                 │ Search & Analysis │  
+                                 │     Modules       │  
+                                 └───────────────────┘  
+
+'''Features'''
+
+Multi-engine and multi-database searching  
+Real-time result streaming  
+Reuse of TeleSpotter pattern-recognition logic  
+Local and Docker-based deployment  
+Support for domestic and international phone formats  
+
+TeleSpotXX lowers the barrier to entry while preserving transparency and analyst control.
+
+---
+
+== Architecture Summary ==
+
+Telespot  
+Monolithic Python script using synchronous HTTP requests and regex-based extraction.
+
+Telespot Fast Mode  
+Asynchronous execution using asyncio and httpx for rapid triage.
+
+TeleSpotter  
+Fully asynchronous Rust architecture with modular separation of concerns.
+
+TeleSpotXX  
+Client-server model with real-time streaming and interactive visualization.
+
+---
+
+== Evaluation Criteria ==
+
+The ecosystem is evaluated across three primary dimensions.
+
+Execution time under realistic network conditions  
+Memory usage based on documented benchmarks  
+Feature coverage across engines, databases, and extracted signal types  
+
+Due to live search-engine variability, benchmarks are indicative rather than absolute.
+
+---
+
+== Ethical and Legal Considerations ==
+
+The Telespot ecosystem is explicitly designed for lawful OSINT research.
+
+All tools operate exclusively on publicly accessible information.  
+No authentication is bypassed.  
+No paywalls are evaded.  
+No private databases are accessed.  
+
+TeleSpotXX does not retain centralized data, and session-based execution minimizes persistence risk.
+
+By emphasizing probabilistic signal discovery rather than attribution, the tools reduce the likelihood of misuse or false certainty.
+
+Open-source transparency enables independent auditing and validation.
+
+---
+
+== Future Directions ==
+
+Potential areas of expansion include:
+
+Expanded international numbering support  
+Language-agnostic pattern extraction  
+Integration with passive breach datasets  
+Adaptive throttling based on detection feedback  
+
+More broadly, the ecosystem reflects a shift toward '''precision OSINT tooling'''—small, focused systems designed to answer specific investigative questions quickly and responsibly.
+
+---
+
+== Conclusion ==
+
+The Telespot ecosystem demonstrates how a narrowly scoped OSINT problem can be addressed through iterative engineering across languages and platforms.
+
+From a Python script to asynchronous execution, a high-performance Rust rewrite, and a real-time web interface, the project achieves substantial gains in speed, usability, and accessibility without compromising ethics or analyst judgment.
+
+Telespot, TeleSpotter, and TeleSpotXX collectively fill a critical gap in phone-number-centric OSINT and serve as a reference model for future focused intelligence tooling.
+
+────────────────────────────────────────────────────────────────────
+End of Wiki Entry
+────────────────────────────────────────────────────────────────────
