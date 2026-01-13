@@ -1,3 +1,18 @@
+1   Download ZIP file
+      (extract folder)
+
+2   Open Chrome
+
+3   Go to Manage Extensions
+
+4   Enable Developer Mode 
+      (toggle switch ON) →
+
+5   Click 'Load Unpacked Extension'
+      (→ Select folder from zip file)
+
+6   Done. Verify Installation.	
+
 <div align="center">
 
 <!-- ANIMATED HEADER -->
