@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TELESPOT-NUMSINT</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>TELESPOT-NUMSINT</h1>
+      <p class="subtitle">Phone Number Intelligence Search</p>
+    </header>
+
+    <div class="input-section">
+      <label for="phoneInput">Enter Phone Number</label>
+      <input
+        type="tel"
+        id="phoneInput"
+        placeholder="555-555-1234"
+        autocomplete="off"
+      >
+      <small>Enter any format - we'll generate 10 search variations</small>
+    </div>
+
+    <div class="country-section">
+      <label for="countryCode">Country Code</label>
+      <select id="countryCode">
+        <option value="1" selected>+1 (US/Canada)</option>
+        <option value="44">+44 (UK)</option>
+        <option value="61">+61 (Australia)</option>
+        <option value="49">+49 (Germany)</option>
+        <option value="33">+33 (France)</option>
+        <option value="81">+81 (Japan)</option>
+        <option value="86">+86 (China)</option>
+        <option value="91">+91 (India)</option>
+      </select>
+    </div>
+
+    <button id="searchBtn" class="search-btn">
+      <span class="btn-icon">&#128269;</span>
+      Search All Formats
+    </button>
+
+    <div id="formatsPreview" class="formats-preview hidden">
+      <h3>Search Formats</h3>
+      <div id="formatsList" class="formats-list"></div>
+    </div>
+
+    <div id="resultsSection" class="results-section hidden">
+      <h3>Search Progress</h3>
+      <div id="progressBar" class="progress-bar">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      <p id="progressText" class="progress-text">0 / 10 searches completed</p>
+
+      <div id="summarySection" class="summary-section hidden">
+        <h3>Summary</h3>
+        <div id="summaryContent" class="summary-content"></div>
+      </div>
+    </div>
+
+    <footer>
+      <p>TELESPOT-NUMSINT v1.0</p>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
