@@ -1,19 +1,15 @@
 <i>EASY INSTALL BASICS</i>
 
-1.   Click "Code" and Download ZIP file
-      (unzip/extract folder from zip)
-
-2.   Open Chrome
-
-3.   Go to Manage Extensions
-
-4.   Enable Developer Mode 
-      (toggle switch ON) →
-
-5.   Click 'Load Unpacked Extension'
-      (→ Select folder from zip file)
-
-6.   You're Done. Verify Installation.	
+1.   Click "Code" Above in Green.
+2.   Select Download ZIP file.
+3.   Unzip/extract folder from the ZIP file.
+4.   Open Chrome
+5.   Go to Manage Extensions
+6.   Enable Developer Mode • Toggle switch ON →
+7.   Click 'Load Unpacked Extension
+8.   Select the folder extracted from ZIP file.
+9.   Verify Installation.
+10.  That's it. You're Done. 
 
 
 <div align="center">
