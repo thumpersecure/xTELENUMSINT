@@ -110,15 +110,46 @@
     </div>
 
     <div id="reportSection" class="report-section hidden">
-      <button id="generateReportBtn" class="report-btn">
-        <span class="btn-icon">&#128196;</span>
-        Generate Pattern Report
-      </button>
+      <h3>Pattern Analysis</h3>
+
+      <div class="pattern-inputs">
+        <div class="pattern-field">
+          <label for="namesFound">Names Found</label>
+          <textarea id="namesFound" placeholder="Enter names found (one per line)&#10;e.g. John Smith&#10;Jane Doe"></textarea>
+        </div>
+
+        <div class="pattern-field">
+          <label for="usernamesFound">Usernames Found</label>
+          <textarea id="usernamesFound" placeholder="Enter usernames (one per line)&#10;e.g. @johndoe&#10;john_smith_99"></textarea>
+        </div>
+
+        <div class="pattern-field">
+          <label for="locationsFound">Locations Found</label>
+          <textarea id="locationsFound" placeholder="Enter locations (one per line)&#10;e.g. New York, NY&#10;Los Angeles, CA"></textarea>
+        </div>
+
+        <div class="pattern-field">
+          <label for="otherPatterns">Other Patterns</label>
+          <textarea id="otherPatterns" placeholder="Emails, social profiles, businesses...&#10;e.g. john@email.com&#10;ABC Company LLC"></textarea>
+        </div>
+      </div>
+
+      <div class="report-actions">
+        <button id="generateReportBtn" class="report-btn">
+          <span class="btn-icon">&#128196;</span>
+          Generate Report
+        </button>
+        <button id="copyReportBtn" class="copy-report-btn hidden">
+          <span class="btn-icon">&#128203;</span>
+          Copy Report
+        </button>
+      </div>
+
       <div id="reportContent" class="report-content"></div>
     </div>
 
     <footer>
-      <p>TELESPOT-NUMSINT v1.2</p>
+      <p>TELESPOT-NUMSINT v1.2.1</p>
     </footer>
   </div>
 

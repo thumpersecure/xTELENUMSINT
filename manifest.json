@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TELESPOT-NUMSINT",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Phone number OSINT tool - Generate multiple phone number formats with Smart Search and pattern reporting",
   "permissions": [
     "tabs"

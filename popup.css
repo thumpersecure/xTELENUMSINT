@@ -559,6 +559,119 @@ option {
   border: none;
 }
 
+/* Pattern input fields */
+.pattern-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.pattern-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pattern-field textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  color: #e4e4e4;
+  resize: vertical;
+  outline: none;
+  transition: all 0.3s ease;
+}
+
+.pattern-field textarea:focus {
+  border-color: #00d9ff;
+  box-shadow: 0 0 10px rgba(0, 217, 255, 0.15);
+}
+
+.pattern-field textarea::placeholder {
+  color: #555;
+  font-size: 11px;
+}
+
+/* Report actions */
+.report-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.report-actions .report-btn {
+  flex: 1;
+}
+
+.copy-report-btn {
+  flex: 1;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #00d9ff 0%, #0099cc 100%);
+  border: none;
+  border-radius: 8px;
+  color: #0d0d1a;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.copy-report-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 217, 255, 0.3);
+}
+
+/* Generated report styling */
+.generated-report {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 16px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #e4e4e4;
+  border: 1px solid #2a2a4a;
+}
+
+.generated-report .report-title {
+  color: #00d9ff;
+  font-size: 14px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.generated-report .section-title {
+  color: #a855f7;
+  font-weight: bold;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.generated-report .pattern-item {
+  color: #00c853;
+  padding-left: 12px;
+}
+
+.generated-report .no-data {
+  color: #666;
+  font-style: italic;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

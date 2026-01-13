@@ -20,9 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const reportSection = document.getElementById('reportSection');
   const reportContent = document.getElementById('reportContent');
   const generateReportBtn = document.getElementById('generateReportBtn');
+  const copyReportBtn = document.getElementById('copyReportBtn');
+  const namesFound = document.getElementById('namesFound');
+  const usernamesFound = document.getElementById('usernamesFound');
+  const locationsFound = document.getElementById('locationsFound');
+  const otherPatterns = document.getElementById('otherPatterns');
 
   let searchResults = [];
   let currentFormats = [];
+  let generatedReportText = '';
 
   // Copy text to clipboard
   function copyToClipboard(text) {
@@ -300,68 +306,105 @@ document.addEventListener('DOMContentLoaded', () => {
     searchBtn.innerHTML = '<span class="btn-icon">&#128269;</span> Search Again';
   }
 
+  // Parse textarea input into array of non-empty lines
+  function parseTextareaInput(text) {
+    return text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  }
+
   // Generate pattern analysis report
   function generateReport() {
     const phone = phoneInput.value.trim();
     const country = countryCode.value;
     const mode = searchMode.value;
+    const timestamp = new Date().toLocaleString();
+
+    // Get pattern inputs
+    const names = parseTextareaInput(namesFound.value);
+    const usernames = parseTextareaInput(usernamesFound.value);
+    const locations = parseTextareaInput(locationsFound.value);
+    const other = parseTextareaInput(otherPatterns.value);
+
+    // Generate plain text report for copying
+    generatedReportText = `
+════════════════════════════════════════════════════════════════
+                    TELESPOT-NUMSINT PATTERN REPORT
+════════════════════════════════════════════════════════════════
+Generated: ${timestamp}
+
+─────────────────────────────────────────────────────────────────
+SEARCH PARAMETERS
+─────────────────────────────────────────────────────────────────
+Target Number:  ${phone}
+Country Code:   +${country}
+Search Mode:    ${mode === 'smart' ? `Smart Search (${smartOperator.value})` : 'Individual (10 tabs)'}
+Tabs Opened:    ${searchResults.length}
+
+─────────────────────────────────────────────────────────────────
+FORMAT VARIATIONS SEARCHED
+─────────────────────────────────────────────────────────────────
+${currentFormats.map((f, i) => `  ${String(i + 1).padStart(2, '0')}. ${f.format}`).join('\n')}
+
+─────────────────────────────────────────────────────────────────
+NAMES FOUND (${names.length})
+─────────────────────────────────────────────────────────────────
+${names.length > 0 ? names.map(n => `  ● ${n}`).join('\n') : '  (No names recorded)'}
+
+─────────────────────────────────────────────────────────────────
+USERNAMES FOUND (${usernames.length})
+─────────────────────────────────────────────────────────────────
+${usernames.length > 0 ? usernames.map(u => `  ● ${u}`).join('\n') : '  (No usernames recorded)'}
+
+─────────────────────────────────────────────────────────────────
+LOCATIONS FOUND (${locations.length})
+─────────────────────────────────────────────────────────────────
+${locations.length > 0 ? locations.map(l => `  ● ${l}`).join('\n') : '  (No locations recorded)'}
+
+─────────────────────────────────────────────────────────────────
+OTHER PATTERNS (${other.length})
+─────────────────────────────────────────────────────────────────
+${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patterns recorded)'}
+
+════════════════════════════════════════════════════════════════
+                         END OF REPORT
+════════════════════════════════════════════════════════════════
+`.trim();
+
+    // Generate HTML display
+    const formatSection = (title, items, emptyMsg) => {
+      if (items.length === 0) {
+        return `<div class="section-title">${title} (0)</div><div class="no-data">${emptyMsg}</div>`;
+      }
+      return `<div class="section-title">${title} (${items.length})</div>${items.map(i => `<div class="pattern-item">● ${escapeHtml(i)}</div>`).join('')}`;
+    };
 
     reportContent.innerHTML = `
-      <div class="report-header">
-        <h4>TELESPOT-NUMSINT Pattern Report</h4>
-        <p class="report-timestamp">${new Date().toLocaleString()}</p>
-      </div>
+      <div class="generated-report">
+        <div class="report-title">TELESPOT-NUMSINT PATTERN REPORT</div>
+        <div style="text-align:center;color:#666;font-size:10px;margin-bottom:12px;">${timestamp}</div>
 
-      <div class="report-section">
-        <h5>Search Parameters</h5>
-        <div class="report-item">
-          <span class="report-label">Input Number:</span>
-          <span class="report-value">${escapeHtml(phone)}</span>
-        </div>
-        <div class="report-item">
-          <span class="report-label">Country Code:</span>
-          <span class="report-value">+${country}</span>
-        </div>
-        <div class="report-item">
-          <span class="report-label">Search Mode:</span>
-          <span class="report-value">${mode === 'smart' ? `Smart (${smartOperator.value})` : 'Individual'}</span>
-        </div>
-        <div class="report-item">
-          <span class="report-label">Tabs Opened:</span>
-          <span class="report-value">${searchResults.length}</span>
-        </div>
-      </div>
+        <div class="section-title">TARGET</div>
+        <div class="pattern-item">${escapeHtml(phone)} (+${country})</div>
 
-      <div class="report-section">
-        <h5>Format Variations Searched</h5>
-        <div class="report-formats">
-          ${currentFormats.map((f, i) => `
-            <div class="report-format-item">
-              <span class="report-format-num">${i + 1}.</span>
-              <code>${escapeHtml(f.format)}</code>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-
-      <div class="report-section">
-        <h5>Analysis Notes</h5>
-        <div class="report-notes">
-          <p>Review opened tabs for the following patterns:</p>
-          <ul>
-            <li>Names or usernames associated with the number</li>
-            <li>Social media profiles</li>
-            <li>Business listings or directories</li>
-            <li>Forum posts or comments</li>
-            <li>Data breach mentions</li>
-            <li>Reverse lookup results</li>
-          </ul>
-          <p class="report-tip">Tip: Cross-reference any recurring names or identifiers across multiple search results.</p>
-        </div>
+        ${formatSection('NAMES FOUND', names, 'No names recorded')}
+        ${formatSection('USERNAMES FOUND', usernames, 'No usernames recorded')}
+        ${formatSection('LOCATIONS FOUND', locations, 'No locations recorded')}
+        ${formatSection('OTHER PATTERNS', other, 'No other patterns recorded')}
       </div>
     `;
 
+    // Show copy button
+    copyReportBtn.classList.remove('hidden');
+
     showToast('Report generated!');
+  }
+
+  // Copy full report to clipboard
+  function copyReport() {
+    if (generatedReportText) {
+      copyToClipboard(generatedReportText);
+    } else {
+      showToast('Generate report first', true);
+    }
   }
 
   // Main search handler
@@ -425,6 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
   searchMode.addEventListener('change', updateSmartOptionsVisibility);
 
   generateReportBtn.addEventListener('click', generateReport);
+  copyReportBtn.addEventListener('click', copyReport);
 
   // Live preview of formats as user types
   phoneInput.addEventListener('input', () => {
