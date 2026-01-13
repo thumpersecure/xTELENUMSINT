@@ -1,6 +1,6 @@
 <i>EASY INSTALL BASICS</i>
 
-1.   Download ZIP file
+1.   Click "Code" and Download ZIP file
       (extract folder)
 
 2.   Open Chrome
