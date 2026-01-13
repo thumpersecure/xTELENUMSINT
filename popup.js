@@ -6,7 +6,9 @@
 document.addEventListener('DOMContentLoaded', () => {
   const phoneInput = document.getElementById('phoneInput');
   const countryCode = document.getElementById('countryCode');
-  const searchEngine = document.getElementById('searchEngine');
+  const searchMode = document.getElementById('searchMode');
+  const smartOperator = document.getElementById('smartOperator');
+  const smartOptions = document.getElementById('smartOptions');
   const searchBtn = document.getElementById('searchBtn');
   const formatsPreview = document.getElementById('formatsPreview');
   const formatsList = document.getElementById('formatsList');
@@ -15,16 +17,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const progressText = document.getElementById('progressText');
   const summarySection = document.getElementById('summarySection');
   const summaryContent = document.getElementById('summaryContent');
+  const reportSection = document.getElementById('reportSection');
+  const reportContent = document.getElementById('reportContent');
+  const generateReportBtn = document.getElementById('generateReportBtn');
 
   let searchResults = [];
-  let currentSearchIndex = 0;
-
-  // Search engine URL templates
-  const searchEngines = {
-    google: 'https://www.google.com/search?q=',
-    bing: 'https://www.bing.com/search?q=',
-    duckduckgo: 'https://duckduckgo.com/?q='
-  };
+  let currentFormats = [];
 
   // Copy text to clipboard
   function copyToClipboard(text) {
@@ -54,25 +52,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Generate 10 search formats based on the phone number
-  // Example: 555-555-1234 with country code 1
   function generateFormats(phoneDigits, country) {
-    // Ensure we have at least 10 digits for US format
-    // If less, pad or handle gracefully
     let areaCode, exchange, subscriber;
 
     if (phoneDigits.length >= 10) {
-      // Take last 10 digits (ignore country code if included)
       const last10 = phoneDigits.slice(-10);
       areaCode = last10.slice(0, 3);
       exchange = last10.slice(3, 6);
       subscriber = last10.slice(6, 10);
     } else if (phoneDigits.length === 7) {
-      // No area code provided
-      areaCode = '555'; // Default area code
+      areaCode = '555';
       exchange = phoneDigits.slice(0, 3);
       subscriber = phoneDigits.slice(3, 7);
     } else {
-      // Handle other lengths
       areaCode = phoneDigits.slice(0, 3) || '555';
       exchange = phoneDigits.slice(3, 6) || '555';
       subscriber = phoneDigits.slice(6, 10) || '1234';
@@ -81,15 +73,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const fullNumber = areaCode + exchange + subscriber;
     const fullWithCountry = country + fullNumber;
 
-    // 10 formats matching the user's image
+    // 10 formats - adjusted per user feedback
     return [
       {
         format: `+${fullWithCountry}`,
         description: 'International format (unquoted)'
       },
       {
-        format: `"+${fullWithCountry}"`,
-        description: 'International format (quoted)'
+        format: `(${areaCode}) ${exchange}-${subscriber}`,
+        description: 'US format with parens (unquoted)'
       },
       {
         format: `"(${areaCode}) ${exchange}-${subscriber}"`,
@@ -120,8 +112,8 @@ document.addEventListener('DOMContentLoaded', () => {
         description: 'Digits only (quoted)'
       },
       {
-        format: `("${fullNumber}")`,
-        description: 'Digits only (parentheses + quoted)'
+        format: `"+${country} (${areaCode}) ${exchange}-${subscriber}"`,
+        description: 'Full international format (quoted)'
       }
     ];
   }
@@ -142,7 +134,6 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       formatsList.appendChild(div);
 
-      // Add click handler for copy button
       div.querySelector('.copy-btn').addEventListener('click', (e) => {
         e.stopPropagation();
         copyToClipboard(item.format);
@@ -187,46 +178,47 @@ document.addEventListener('DOMContentLoaded', () => {
     progressText.textContent = `${completed} / ${total} searches completed`;
   }
 
-  // Perform search for a format using selected engine
-  async function performSearch(format, index) {
-    updateFormatStatus(index, 'searching');
+  // Perform Google search
+  async function performSearch(query, index = null) {
+    if (index !== null) {
+      updateFormatStatus(index, 'searching');
+    }
 
-    const query = encodeURIComponent(format);
-    const engine = searchEngine.value;
-    const searchUrl = searchEngines[engine] + query;
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
     try {
-      // Open search in new tab
       const tab = await chrome.tabs.create({
         url: searchUrl,
         active: false
       });
 
-      // Store result info
       searchResults.push({
         index,
-        format,
+        query,
         tabId: tab.id,
         url: searchUrl,
         status: 'opened'
       });
 
-      updateFormatStatus(index, 'complete');
+      if (index !== null) {
+        updateFormatStatus(index, 'complete');
+      }
       return { success: true, tabId: tab.id };
     } catch (error) {
-      console.error(`Search error for format ${index}:`, error);
-      updateFormatStatus(index, 'error');
+      console.error(`Search error:`, error);
+      if (index !== null) {
+        updateFormatStatus(index, 'error');
+      }
       return { success: false, error: error.message };
     }
   }
 
-  // Run all searches sequentially with delay
-  async function runAllSearches(formats) {
+  // Run individual searches for each format
+  async function runIndividualSearches(formats) {
     searchResults = [];
-    currentSearchIndex = 0;
-
     resultsSection.classList.remove('hidden');
     summarySection.classList.add('hidden');
+    reportSection.classList.add('hidden');
 
     const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -234,34 +226,59 @@ document.addEventListener('DOMContentLoaded', () => {
       await performSearch(formats[i].format, i);
       updateProgress(i + 1, formats.length);
 
-      // Small delay between searches to avoid rate limiting
       if (i < formats.length - 1) {
         await delay(500);
       }
     }
 
-    // Show summary
-    showSummary(formats);
+    showSummary(formats, 'individual');
+  }
+
+  // Run smart search (all formats combined)
+  async function runSmartSearch(formats) {
+    searchResults = [];
+    resultsSection.classList.remove('hidden');
+    summarySection.classList.add('hidden');
+    reportSection.classList.add('hidden');
+
+    const operator = smartOperator.value;
+    const combinedQuery = formats.map(f => f.format).join(` ${operator} `);
+
+    // Mark all as searching
+    formats.forEach((_, i) => updateFormatStatus(i, 'searching'));
+
+    updateProgress(0, 1);
+    await performSearch(combinedQuery, null);
+    updateProgress(1, 1);
+
+    // Mark all as complete
+    formats.forEach((_, i) => updateFormatStatus(i, 'complete'));
+
+    showSummary(formats, 'smart');
   }
 
   // Display search summary
-  function showSummary(formats) {
+  function showSummary(formats, mode) {
     const successCount = searchResults.filter(r => r.status === 'opened').length;
-    const errorCount = formats.length - successCount;
-    const engineName = searchEngine.options[searchEngine.selectedIndex].text;
+    const expectedCount = mode === 'smart' ? 1 : formats.length;
+    const errorCount = expectedCount - successCount;
+
+    let modeText = mode === 'smart'
+      ? `Smart Search (${smartOperator.value})`
+      : 'Individual Searches';
 
     summaryContent.innerHTML = `
       <div class="summary-stat">
-        <span class="stat-label">Search Engine</span>
-        <span class="stat-value">${engineName}</span>
+        <span class="stat-label">Search Mode</span>
+        <span class="stat-value">${modeText}</span>
       </div>
       <div class="summary-stat">
-        <span class="stat-label">Total Searches</span>
+        <span class="stat-label">Formats Used</span>
         <span class="stat-value">${formats.length}</span>
       </div>
       <div class="summary-stat">
         <span class="stat-label">Tabs Opened</span>
-        <span class="stat-value ${successCount === formats.length ? 'high' : 'medium'}">${successCount}</span>
+        <span class="stat-value ${successCount === expectedCount ? 'high' : 'medium'}">${successCount}</span>
       </div>
       ${errorCount > 0 ? `
       <div class="summary-stat">
@@ -271,15 +288,80 @@ document.addEventListener('DOMContentLoaded', () => {
       ` : ''}
       <div class="summary-stat">
         <span class="stat-label">Status</span>
-        <span class="stat-value ${successCount === formats.length ? 'high' : 'medium'}">
-          ${successCount === formats.length ? 'Complete' : 'Partial'}
+        <span class="stat-value ${successCount === expectedCount ? 'high' : 'medium'}">
+          ${successCount === expectedCount ? 'Complete' : 'Partial'}
         </span>
       </div>
     `;
 
     summarySection.classList.remove('hidden');
+    reportSection.classList.remove('hidden');
     searchBtn.disabled = false;
     searchBtn.innerHTML = '<span class="btn-icon">&#128269;</span> Search Again';
+  }
+
+  // Generate pattern analysis report
+  function generateReport() {
+    const phone = phoneInput.value.trim();
+    const country = countryCode.value;
+    const mode = searchMode.value;
+
+    reportContent.innerHTML = `
+      <div class="report-header">
+        <h4>TELESPOT-NUMSINT Pattern Report</h4>
+        <p class="report-timestamp">${new Date().toLocaleString()}</p>
+      </div>
+
+      <div class="report-section">
+        <h5>Search Parameters</h5>
+        <div class="report-item">
+          <span class="report-label">Input Number:</span>
+          <span class="report-value">${escapeHtml(phone)}</span>
+        </div>
+        <div class="report-item">
+          <span class="report-label">Country Code:</span>
+          <span class="report-value">+${country}</span>
+        </div>
+        <div class="report-item">
+          <span class="report-label">Search Mode:</span>
+          <span class="report-value">${mode === 'smart' ? `Smart (${smartOperator.value})` : 'Individual'}</span>
+        </div>
+        <div class="report-item">
+          <span class="report-label">Tabs Opened:</span>
+          <span class="report-value">${searchResults.length}</span>
+        </div>
+      </div>
+
+      <div class="report-section">
+        <h5>Format Variations Searched</h5>
+        <div class="report-formats">
+          ${currentFormats.map((f, i) => `
+            <div class="report-format-item">
+              <span class="report-format-num">${i + 1}.</span>
+              <code>${escapeHtml(f.format)}</code>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="report-section">
+        <h5>Analysis Notes</h5>
+        <div class="report-notes">
+          <p>Review opened tabs for the following patterns:</p>
+          <ul>
+            <li>Names or usernames associated with the number</li>
+            <li>Social media profiles</li>
+            <li>Business listings or directories</li>
+            <li>Forum posts or comments</li>
+            <li>Data breach mentions</li>
+            <li>Reverse lookup results</li>
+          </ul>
+          <p class="report-tip">Tip: Cross-reference any recurring names or identifiers across multiple search results.</p>
+        </div>
+      </div>
+    `;
+
+    showToast('Report generated!');
   }
 
   // Main search handler
@@ -307,13 +389,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const country = countryCode.value;
     const formats = generateFormats(digits, country);
+    currentFormats = formats;
 
     displayFormats(formats);
 
     searchBtn.disabled = true;
     searchBtn.innerHTML = '<span class="btn-icon">⏳</span> Searching...';
 
-    await runAllSearches(formats);
+    const mode = searchMode.value;
+    if (mode === 'smart') {
+      await runSmartSearch(formats);
+    } else {
+      await runIndividualSearches(formats);
+    }
+  }
+
+  // Toggle smart options visibility
+  function updateSmartOptionsVisibility() {
+    if (searchMode.value === 'smart') {
+      smartOptions.classList.remove('hidden');
+    } else {
+      smartOptions.classList.add('hidden');
+    }
   }
 
   // Event listeners
@@ -325,6 +422,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  searchMode.addEventListener('change', updateSmartOptionsVisibility);
+
+  generateReportBtn.addEventListener('click', generateReport);
+
   // Live preview of formats as user types
   phoneInput.addEventListener('input', () => {
     const phone = phoneInput.value.trim();
@@ -333,6 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (digits.length >= 7) {
       const country = countryCode.value;
       const formats = generateFormats(digits, country);
+      currentFormats = formats;
       displayFormats(formats);
     } else {
       formatsPreview.classList.add('hidden');
@@ -346,10 +448,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (digits.length >= 7) {
       const country = countryCode.value;
       const formats = generateFormats(digits, country);
+      currentFormats = formats;
       displayFormats(formats);
     }
   });
 
-  // Set example placeholder on load
+  // Initialize
   phoneInput.placeholder = '555-555-1234';
+  updateSmartOptionsVisibility();
 });
