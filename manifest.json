@@ -1,15 +1,13 @@
 {
   "manifest_version": 3,
   "name": "TELESPOT-NUMSINT",
-  "version": "1.1.0",
-  "description": "Phone number OSINT tool - Generate multiple phone number formats and search across Google, Bing, and DuckDuckGo",
+  "version": "1.2.0",
+  "description": "Phone number OSINT tool - Generate multiple phone number formats with Smart Search and pattern reporting",
   "permissions": [
     "tabs"
   ],
   "host_permissions": [
-    "https://www.google.com/*",
-    "https://www.bing.com/*",
-    "https://duckduckgo.com/*"
+    "https://www.google.com/*"
   ],
   "action": {
     "default_popup": "popup.html",

@@ -67,13 +67,23 @@
       </select>
     </div>
 
-    <div class="engine-section">
-      <label for="searchEngine">Search Engine</label>
-      <select id="searchEngine">
-        <option value="google" selected>Google</option>
-        <option value="bing">Bing</option>
-        <option value="duckduckgo">DuckDuckGo</option>
+    <div class="mode-section">
+      <label for="searchMode">Search Mode</label>
+      <select id="searchMode">
+        <option value="individual" selected>Individual (10 tabs)</option>
+        <option value="smart">Smart Search (1 tab)</option>
       </select>
+    </div>
+
+    <div id="smartOptions" class="smart-options hidden">
+      <label for="smartOperator">Combine With</label>
+      <div class="operator-toggle">
+        <select id="smartOperator">
+          <option value="OR" selected>OR (any match)</option>
+          <option value="AND">AND (all match)</option>
+        </select>
+      </div>
+      <small>Smart search combines all formats into one query</small>
     </div>
 
     <button id="searchBtn" class="search-btn">
@@ -99,8 +109,16 @@
       </div>
     </div>
 
+    <div id="reportSection" class="report-section hidden">
+      <button id="generateReportBtn" class="report-btn">
+        <span class="btn-icon">&#128196;</span>
+        Generate Pattern Report
+      </button>
+      <div id="reportContent" class="report-content"></div>
+    </div>
+
     <footer>
-      <p>TELESPOT-NUMSINT v1.1</p>
+      <p>TELESPOT-NUMSINT v1.2</p>
     </footer>
   </div>
 
