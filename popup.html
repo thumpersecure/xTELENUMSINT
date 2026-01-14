@@ -86,6 +86,14 @@
       <small>Smart search combines all formats into one query</small>
     </div>
 
+    <div class="window-section">
+      <label for="windowMode">Tab Behavior</label>
+      <select id="windowMode">
+        <option value="newWindow" selected>Open in New Window</option>
+        <option value="currentWindow">Open in Current Window</option>
+      </select>
+    </div>
+
     <button id="searchBtn" class="search-btn">
       <span class="btn-icon">&#128269;</span>
       Search All Formats
@@ -112,25 +120,45 @@
     <div id="reportSection" class="report-section hidden">
       <h3>Pattern Analysis</h3>
 
+      <div class="scan-controls">
+        <button id="scanTabsBtn" class="scan-btn">
+          <span class="btn-icon">&#128270;</span>
+          Scan Tabs for Patterns
+        </button>
+        <button id="rescanBtn" class="rescan-btn hidden">
+          <span class="btn-icon">&#128260;</span>
+          Re-scan
+        </button>
+      </div>
+
+      <div id="scanStatus" class="scan-status hidden">
+        <span id="scanStatusText">Scanning tabs...</span>
+      </div>
+
       <div class="pattern-inputs">
         <div class="pattern-field">
-          <label for="namesFound">Names Found</label>
-          <textarea id="namesFound" placeholder="Enter names found (one per line)&#10;e.g. John Smith&#10;Jane Doe"></textarea>
+          <label for="namesFound">Names Found <span id="namesCount" class="count-badge"></span></label>
+          <textarea id="namesFound" placeholder="Auto-extracted names appear here&#10;You can also add manually"></textarea>
         </div>
 
         <div class="pattern-field">
-          <label for="usernamesFound">Usernames Found</label>
-          <textarea id="usernamesFound" placeholder="Enter usernames (one per line)&#10;e.g. @johndoe&#10;john_smith_99"></textarea>
+          <label for="usernamesFound">Usernames Found <span id="usernamesCount" class="count-badge"></span></label>
+          <textarea id="usernamesFound" placeholder="Auto-extracted usernames appear here&#10;Including @handles"></textarea>
         </div>
 
         <div class="pattern-field">
-          <label for="locationsFound">Locations Found</label>
-          <textarea id="locationsFound" placeholder="Enter locations (one per line)&#10;e.g. New York, NY&#10;Los Angeles, CA"></textarea>
+          <label for="emailsFound">Emails Found <span id="emailsCount" class="count-badge"></span></label>
+          <textarea id="emailsFound" placeholder="Auto-extracted emails appear here&#10;Priority: multi-tab matches shown first"></textarea>
         </div>
 
         <div class="pattern-field">
-          <label for="otherPatterns">Other Patterns</label>
-          <textarea id="otherPatterns" placeholder="Emails, social profiles, businesses...&#10;e.g. john@email.com&#10;ABC Company LLC"></textarea>
+          <label for="locationsFound">Locations Found <span id="locationsCount" class="count-badge"></span></label>
+          <textarea id="locationsFound" placeholder="Auto-extracted locations appear here&#10;Multi-tab matches = higher priority"></textarea>
+        </div>
+
+        <div class="pattern-field">
+          <label for="otherPatterns">Other Patterns <span id="otherCount" class="count-badge"></span></label>
+          <textarea id="otherPatterns" placeholder="Social profiles, businesses, phones..."></textarea>
         </div>
       </div>
 
@@ -149,7 +177,7 @@
     </div>
 
     <footer>
-      <p>TELESPOT-NUMSINT v1.2.1</p>
+      <p>TELESPOT-NUMSINT v1.3.0</p>
     </footer>
   </div>
 

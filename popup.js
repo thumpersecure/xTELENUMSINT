@@ -1,14 +1,17 @@
 /**
  * TELESPOT-NUMSINT - Phone Number Intelligence Search
  * Generates multiple phone number formats and searches Google for OSINT
+ * v1.3.0 - Auto pattern extraction with cross-tab analysis
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Element references
   const phoneInput = document.getElementById('phoneInput');
   const countryCode = document.getElementById('countryCode');
   const searchMode = document.getElementById('searchMode');
   const smartOperator = document.getElementById('smartOperator');
   const smartOptions = document.getElementById('smartOptions');
+  const windowMode = document.getElementById('windowMode');
   const searchBtn = document.getElementById('searchBtn');
   const formatsPreview = document.getElementById('formatsPreview');
   const formatsList = document.getElementById('formatsList');
@@ -21,14 +24,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const reportContent = document.getElementById('reportContent');
   const generateReportBtn = document.getElementById('generateReportBtn');
   const copyReportBtn = document.getElementById('copyReportBtn');
+  const scanTabsBtn = document.getElementById('scanTabsBtn');
+  const rescanBtn = document.getElementById('rescanBtn');
+  const scanStatus = document.getElementById('scanStatus');
+  const scanStatusText = document.getElementById('scanStatusText');
   const namesFound = document.getElementById('namesFound');
   const usernamesFound = document.getElementById('usernamesFound');
+  const emailsFound = document.getElementById('emailsFound');
   const locationsFound = document.getElementById('locationsFound');
   const otherPatterns = document.getElementById('otherPatterns');
+  const namesCount = document.getElementById('namesCount');
+  const usernamesCount = document.getElementById('usernamesCount');
+  const emailsCount = document.getElementById('emailsCount');
+  const locationsCount = document.getElementById('locationsCount');
+  const otherCount = document.getElementById('otherCount');
 
+  // State
   let searchResults = [];
   let currentFormats = [];
   let generatedReportText = '';
+  let openedTabIds = [];  // Track tabs opened by this extension
+  let searchWindowId = null;  // Track if we opened a new window
+  let extractedPatterns = {
+    names: {},      // { pattern: { count: n, tabs: [tabIds] } }
+    usernames: {},
+    emails: {},
+    locations: {},
+    phones: {},
+    other: {}
+  };
 
   // Copy text to clipboard
   function copyToClipboard(text) {
@@ -184,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     progressText.textContent = `${completed} / ${total} searches completed`;
   }
 
-  // Perform Google search
+  // Perform Google search - now supports new window mode
   async function performSearch(query, index = null) {
     if (index !== null) {
       updateFormatStatus(index, 'searching');
@@ -193,10 +217,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
     try {
-      const tab = await chrome.tabs.create({
-        url: searchUrl,
-        active: false
-      });
+      let tab;
+      const useNewWindow = windowMode.value === 'newWindow';
+
+      if (useNewWindow && searchWindowId === null) {
+        // Create new window for first tab
+        const newWindow = await chrome.windows.create({
+          url: searchUrl,
+          focused: false,
+          type: 'normal'
+        });
+        searchWindowId = newWindow.id;
+        tab = newWindow.tabs[0];
+      } else if (useNewWindow && searchWindowId !== null) {
+        // Add tab to existing search window
+        tab = await chrome.tabs.create({
+          url: searchUrl,
+          windowId: searchWindowId,
+          active: false
+        });
+      } else {
+        // Add to current window
+        tab = await chrome.tabs.create({
+          url: searchUrl,
+          active: false
+        });
+      }
+
+      // Track this tab
+      openedTabIds.push(tab.id);
 
       searchResults.push({
         index,
@@ -222,6 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Run individual searches for each format
   async function runIndividualSearches(formats) {
     searchResults = [];
+    openedTabIds = [];
+    searchWindowId = null;
     resultsSection.classList.remove('hidden');
     summarySection.classList.add('hidden');
     reportSection.classList.add('hidden');
@@ -243,6 +294,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Run smart search (all formats combined)
   async function runSmartSearch(formats) {
     searchResults = [];
+    openedTabIds = [];
+    searchWindowId = null;
     resultsSection.classList.remove('hidden');
     summarySection.classList.add('hidden');
     reportSection.classList.add('hidden');
@@ -273,10 +326,16 @@ document.addEventListener('DOMContentLoaded', () => {
       ? `Smart Search (${smartOperator.value})`
       : 'Individual Searches';
 
+    let windowText = windowMode.value === 'newWindow' ? 'New Window' : 'Current Window';
+
     summaryContent.innerHTML = `
       <div class="summary-stat">
         <span class="stat-label">Search Mode</span>
         <span class="stat-value">${modeText}</span>
+      </div>
+      <div class="summary-stat">
+        <span class="stat-label">Tab Location</span>
+        <span class="stat-value">${windowText}</span>
       </div>
       <div class="summary-stat">
         <span class="stat-label">Formats Used</span>
@@ -306,6 +365,222 @@ document.addEventListener('DOMContentLoaded', () => {
     searchBtn.innerHTML = '<span class="btn-icon">&#128269;</span> Search Again';
   }
 
+  // Scan tabs for patterns
+  async function scanTabs() {
+    scanTabsBtn.disabled = true;
+    scanStatus.classList.remove('hidden', 'complete', 'error');
+    scanStatusText.textContent = 'Scanning tabs...';
+
+    // Reset extracted patterns
+    extractedPatterns = {
+      names: {},
+      usernames: {},
+      emails: {},
+      locations: {},
+      phones: {},
+      other: {}
+    };
+
+    // Determine which tabs to scan
+    let tabsToScan = [];
+
+    if (openedTabIds.length > 0) {
+      // Scan only tabs opened by this extension
+      tabsToScan = openedTabIds;
+      scanStatusText.textContent = `Scanning ${tabsToScan.length} extension tabs...`;
+    } else {
+      // No tabs opened yet - scan all Google tabs
+      const allTabs = await chrome.tabs.query({ url: 'https://www.google.com/*' });
+      tabsToScan = allTabs.map(t => t.id);
+      scanStatusText.textContent = `Scanning ${tabsToScan.length} Google tabs...`;
+    }
+
+    if (tabsToScan.length === 0) {
+      scanStatus.classList.add('error');
+      scanStatusText.textContent = 'No tabs to scan. Run a search first!';
+      scanTabsBtn.disabled = false;
+      return;
+    }
+
+    let scannedCount = 0;
+    let errorCount = 0;
+
+    for (const tabId of tabsToScan) {
+      try {
+        scanStatusText.textContent = `Scanning tab ${scannedCount + 1} of ${tabsToScan.length}...`;
+
+        // Send message to content script
+        const response = await chrome.tabs.sendMessage(tabId, { action: 'extractPatterns' });
+
+        if (response && response.success) {
+          // Process extracted data
+          processExtractedData(response.data, tabId);
+          scannedCount++;
+        } else {
+          errorCount++;
+        }
+      } catch (error) {
+        console.error(`Error scanning tab ${tabId}:`, error);
+        errorCount++;
+      }
+    }
+
+    // Update UI with results
+    if (scannedCount > 0) {
+      populatePatternFields();
+      scanStatus.classList.add('complete');
+      scanStatusText.textContent = `Scanned ${scannedCount} tabs. ${errorCount > 0 ? `${errorCount} errors.` : 'Patterns extracted!'}`;
+      rescanBtn.classList.remove('hidden');
+    } else {
+      scanStatus.classList.add('error');
+      scanStatusText.textContent = 'Could not scan tabs. Make sure pages are loaded.';
+    }
+
+    scanTabsBtn.disabled = false;
+  }
+
+  // Process extracted data from a single tab
+  function processExtractedData(data, tabId) {
+    // Names
+    if (data.names) {
+      data.names.forEach(name => {
+        if (!extractedPatterns.names[name]) {
+          extractedPatterns.names[name] = { count: 0, tabs: [] };
+        }
+        if (!extractedPatterns.names[name].tabs.includes(tabId)) {
+          extractedPatterns.names[name].count++;
+          extractedPatterns.names[name].tabs.push(tabId);
+        }
+      });
+    }
+
+    // Usernames
+    if (data.usernames) {
+      data.usernames.forEach(username => {
+        if (!extractedPatterns.usernames[username]) {
+          extractedPatterns.usernames[username] = { count: 0, tabs: [] };
+        }
+        if (!extractedPatterns.usernames[username].tabs.includes(tabId)) {
+          extractedPatterns.usernames[username].count++;
+          extractedPatterns.usernames[username].tabs.push(tabId);
+        }
+      });
+    }
+
+    // Emails
+    if (data.emails) {
+      data.emails.forEach(email => {
+        if (!extractedPatterns.emails[email]) {
+          extractedPatterns.emails[email] = { count: 0, tabs: [] };
+        }
+        if (!extractedPatterns.emails[email].tabs.includes(tabId)) {
+          extractedPatterns.emails[email].count++;
+          extractedPatterns.emails[email].tabs.push(tabId);
+        }
+      });
+    }
+
+    // Locations
+    if (data.locations) {
+      data.locations.forEach(location => {
+        if (!extractedPatterns.locations[location]) {
+          extractedPatterns.locations[location] = { count: 0, tabs: [] };
+        }
+        if (!extractedPatterns.locations[location].tabs.includes(tabId)) {
+          extractedPatterns.locations[location].count++;
+          extractedPatterns.locations[location].tabs.push(tabId);
+        }
+      });
+    }
+
+    // Phone numbers
+    if (data.phones) {
+      data.phones.forEach(phone => {
+        if (!extractedPatterns.phones[phone]) {
+          extractedPatterns.phones[phone] = { count: 0, tabs: [] };
+        }
+        if (!extractedPatterns.phones[phone].tabs.includes(tabId)) {
+          extractedPatterns.phones[phone].count++;
+          extractedPatterns.phones[phone].tabs.push(tabId);
+        }
+      });
+    }
+
+    // Other patterns
+    if (data.other) {
+      data.other.forEach(item => {
+        if (!extractedPatterns.other[item]) {
+          extractedPatterns.other[item] = { count: 0, tabs: [] };
+        }
+        if (!extractedPatterns.other[item].tabs.includes(tabId)) {
+          extractedPatterns.other[item].count++;
+          extractedPatterns.other[item].tabs.push(tabId);
+        }
+      });
+    }
+  }
+
+  // Sort patterns by frequency (multi-tab = higher priority)
+  function sortByFrequency(patternObj) {
+    return Object.entries(patternObj)
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([pattern, data]) => {
+        if (data.count > 1) {
+          return `[${data.count}x] ${pattern}`;
+        }
+        return pattern;
+      });
+  }
+
+  // Populate pattern fields with extracted data
+  function populatePatternFields() {
+    // Names - sorted by frequency
+    const sortedNames = sortByFrequency(extractedPatterns.names);
+    namesFound.value = sortedNames.join('\n');
+    updateCountBadge(namesCount, sortedNames.length, extractedPatterns.names);
+
+    // Usernames - sorted by frequency
+    const sortedUsernames = sortByFrequency(extractedPatterns.usernames);
+    usernamesFound.value = sortedUsernames.join('\n');
+    updateCountBadge(usernamesCount, sortedUsernames.length, extractedPatterns.usernames);
+
+    // Emails - sorted by frequency (priority: multi-tab first)
+    const sortedEmails = sortByFrequency(extractedPatterns.emails);
+    emailsFound.value = sortedEmails.join('\n');
+    updateCountBadge(emailsCount, sortedEmails.length, extractedPatterns.emails);
+
+    // Locations - sorted by frequency
+    const sortedLocations = sortByFrequency(extractedPatterns.locations);
+    locationsFound.value = sortedLocations.join('\n');
+    updateCountBadge(locationsCount, sortedLocations.length, extractedPatterns.locations);
+
+    // Other patterns (phones + social + businesses)
+    const combinedOther = { ...extractedPatterns.phones, ...extractedPatterns.other };
+    const sortedOther = sortByFrequency(combinedOther);
+    otherPatterns.value = sortedOther.join('\n');
+    updateCountBadge(otherCount, sortedOther.length, combinedOther);
+
+    showToast('Patterns extracted!');
+  }
+
+  // Update count badge with priority indicator
+  function updateCountBadge(badgeEl, count, patternObj) {
+    if (!badgeEl) return;
+
+    const multiTabCount = Object.values(patternObj).filter(p => p.count > 1).length;
+
+    if (count === 0) {
+      badgeEl.textContent = '';
+      badgeEl.className = 'count-badge';
+    } else if (multiTabCount > 0) {
+      badgeEl.textContent = `${count} (${multiTabCount} priority)`;
+      badgeEl.className = 'count-badge high-priority';
+    } else {
+      badgeEl.textContent = count;
+      badgeEl.className = 'count-badge';
+    }
+  }
+
   // Parse textarea input into array of non-empty lines
   function parseTextareaInput(text) {
     return text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
@@ -321,8 +596,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Get pattern inputs
     const names = parseTextareaInput(namesFound.value);
     const usernames = parseTextareaInput(usernamesFound.value);
+    const emails = parseTextareaInput(emailsFound.value);
     const locations = parseTextareaInput(locationsFound.value);
     const other = parseTextareaInput(otherPatterns.value);
+
+    // Separate high-priority (multi-tab) from regular
+    const separateByPriority = (items) => {
+      const high = items.filter(i => i.startsWith('['));
+      const normal = items.filter(i => !i.startsWith('['));
+      return { high, normal };
+    };
+
+    const emailPriority = separateByPriority(emails);
+    const locationPriority = separateByPriority(locations);
 
     // Generate plain text report for copying
     generatedReportText = `
@@ -338,6 +624,7 @@ Target Number:  ${phone}
 Country Code:   +${country}
 Search Mode:    ${mode === 'smart' ? `Smart Search (${smartOperator.value})` : 'Individual (10 tabs)'}
 Tabs Opened:    ${searchResults.length}
+Tabs Scanned:   ${openedTabIds.length || 'N/A'}
 
 ─────────────────────────────────────────────────────────────────
 FORMAT VARIATIONS SEARCHED
@@ -347,22 +634,27 @@ ${currentFormats.map((f, i) => `  ${String(i + 1).padStart(2, '0')}. ${f.format}
 ─────────────────────────────────────────────────────────────────
 NAMES FOUND (${names.length})
 ─────────────────────────────────────────────────────────────────
-${names.length > 0 ? names.map(n => `  ● ${n}`).join('\n') : '  (No names recorded)'}
+${names.length > 0 ? names.map(n => `  ● ${n}`).join('\n') : '  (No names found)'}
 
 ─────────────────────────────────────────────────────────────────
 USERNAMES FOUND (${usernames.length})
 ─────────────────────────────────────────────────────────────────
-${usernames.length > 0 ? usernames.map(u => `  ● ${u}`).join('\n') : '  (No usernames recorded)'}
+${usernames.length > 0 ? usernames.map(u => `  ● ${u}`).join('\n') : '  (No usernames found)'}
+
+─────────────────────────────────────────────────────────────────
+EMAILS FOUND (${emails.length})
+─────────────────────────────────────────────────────────────────
+${emailPriority.high.length > 0 ? '  HIGH PRIORITY (multi-tab matches):\n' + emailPriority.high.map(e => `    ★ ${e}`).join('\n') + '\n' : ''}${emailPriority.normal.length > 0 ? '  Other:\n' + emailPriority.normal.map(e => `    ● ${e}`).join('\n') : ''}${emails.length === 0 ? '  (No emails found)' : ''}
 
 ─────────────────────────────────────────────────────────────────
 LOCATIONS FOUND (${locations.length})
 ─────────────────────────────────────────────────────────────────
-${locations.length > 0 ? locations.map(l => `  ● ${l}`).join('\n') : '  (No locations recorded)'}
+${locationPriority.high.length > 0 ? '  HIGH PRIORITY (multi-tab matches):\n' + locationPriority.high.map(l => `    ★ ${l}`).join('\n') + '\n' : ''}${locationPriority.normal.length > 0 ? '  Other:\n' + locationPriority.normal.map(l => `    ● ${l}`).join('\n') : ''}${locations.length === 0 ? '  (No locations found)' : ''}
 
 ─────────────────────────────────────────────────────────────────
 OTHER PATTERNS (${other.length})
 ─────────────────────────────────────────────────────────────────
-${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patterns recorded)'}
+${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patterns found)'}
 
 ════════════════════════════════════════════════════════════════
                          END OF REPORT
@@ -374,7 +666,10 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
       if (items.length === 0) {
         return `<div class="section-title">${title} (0)</div><div class="no-data">${emptyMsg}</div>`;
       }
-      return `<div class="section-title">${title} (${items.length})</div>${items.map(i => `<div class="pattern-item">● ${escapeHtml(i)}</div>`).join('')}`;
+      return `<div class="section-title">${title} (${items.length})</div>${items.map(i => {
+        const isHighPriority = i.startsWith('[');
+        return `<div class="pattern-item ${isHighPriority ? 'high-priority' : ''}">${isHighPriority ? '★' : '●'} ${escapeHtml(i)}</div>`;
+      }).join('')}`;
     };
 
     reportContent.innerHTML = `
@@ -385,10 +680,11 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
         <div class="section-title">TARGET</div>
         <div class="pattern-item">${escapeHtml(phone)} (+${country})</div>
 
-        ${formatSection('NAMES FOUND', names, 'No names recorded')}
-        ${formatSection('USERNAMES FOUND', usernames, 'No usernames recorded')}
-        ${formatSection('LOCATIONS FOUND', locations, 'No locations recorded')}
-        ${formatSection('OTHER PATTERNS', other, 'No other patterns recorded')}
+        ${formatSection('NAMES FOUND', names, 'No names found')}
+        ${formatSection('USERNAMES FOUND', usernames, 'No usernames found')}
+        ${formatSection('EMAILS FOUND', emails, 'No emails found')}
+        ${formatSection('LOCATIONS FOUND', locations, 'No locations found')}
+        ${formatSection('OTHER PATTERNS', other, 'No other patterns found')}
       </div>
     `;
 
@@ -469,6 +765,15 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
 
   generateReportBtn.addEventListener('click', generateReport);
   copyReportBtn.addEventListener('click', copyReport);
+
+  // Scan tabs button
+  scanTabsBtn.addEventListener('click', scanTabs);
+
+  // Re-scan button
+  rescanBtn.addEventListener('click', () => {
+    rescanBtn.classList.add('hidden');
+    scanTabs();
+  });
 
   // Live preview of formats as user types
   phoneInput.addEventListener('input', () => {
