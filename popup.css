@@ -90,6 +90,10 @@ input[type="tel"]::placeholder {
   margin-bottom: 12px;
 }
 
+.window-section {
+  margin-bottom: 16px;
+}
+
 .smart-options {
   margin-bottom: 20px;
   padding: 12px;
@@ -559,6 +563,107 @@ option {
   border: none;
 }
 
+/* Scan controls */
+.scan-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.scan-btn {
+  flex: 1;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #00c853 0%, #00e676 100%);
+  border: none;
+  border-radius: 8px;
+  color: #0d0d1a;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.scan-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 200, 83, 0.3);
+}
+
+.scan-btn:disabled {
+  background: #333;
+  color: #666;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.rescan-btn {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #ff9500 0%, #ffb700 100%);
+  border: none;
+  border-radius: 8px;
+  color: #0d0d1a;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.rescan-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(255, 149, 0, 0.3);
+}
+
+.scan-status {
+  padding: 10px 16px;
+  background: #1a1a2e;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scan-status::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: #00d9ff;
+  border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+
+.scan-status.complete::before {
+  background: #00c853;
+  animation: none;
+}
+
+.scan-status.error::before {
+  background: #ff3d00;
+  animation: none;
+}
+
+.count-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #2a2a4a;
+  border-radius: 10px;
+  color: #00d9ff;
+  margin-left: 6px;
+}
+
+.count-badge.high-priority {
+  background: #00c853;
+  color: #0d0d1a;
+}
+
 /* Pattern input fields */
 .pattern-inputs {
   display: flex;
@@ -670,6 +775,11 @@ option {
 .generated-report .no-data {
   color: #666;
   font-style: italic;
+}
+
+.generated-report .pattern-item.high-priority {
+  color: #ffb700;
+  font-weight: 600;
 }
 
 /* Scrollbar styling */
