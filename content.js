@@ -1,82 +1,105 @@
 /**
  * TELESPOT-NUMSINT Content Script
  * Extracts patterns from Google search result pages
+ * v1.4.0 - Improved filtering, reduced false positives
  */
 
 (function() {
-  // Pattern extraction functions
 
   // Extract potential names (Capitalized First Last patterns)
   function extractNames(text) {
-    const namePattern = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g;
+    const namePattern = /\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})+)\b/g;
     const matches = text.match(namePattern) || [];
 
-    // Filter out common false positives
     const excludeList = [
       'Google Search', 'Sign In', 'Privacy Policy', 'Terms Service',
       'United States', 'New York', 'Los Angeles', 'San Francisco',
       'About Results', 'Search Results', 'More Results', 'Related Searches',
-      'People Also', 'Did You', 'Showing Results'
+      'People Also', 'Did You', 'Showing Results', 'All Rights',
+      'Learn More', 'Read More', 'See More', 'View All',
+      'Terms And', 'Cookie Policy', 'Safe Search', 'Google Maps',
+      'Google Images', 'Shopping Results', 'Top Stories',
+      'Web Results', 'Image Results', 'Video Results',
+      'Chrome Web', 'Play Store', 'App Store'
     ];
 
     return [...new Set(matches)].filter(name => {
       return !excludeList.some(exclude => name.includes(exclude)) &&
-             name.length > 4 && name.length < 50;
+             name.length > 4 && name.length < 40 &&
+             name.split(/\s+/).length <= 4;
     });
   }
 
-  // Extract usernames (@handles and user_name patterns)
+  // Extract usernames (@handles and profile URLs)
   function extractUsernames(text) {
     const patterns = [
-      /@([a-zA-Z0-9_]{2,30})\b/g,                    // @username
-      /(?:user|profile|u|@)[\/:]([a-zA-Z0-9_-]{3,30})/gi,  // user/username, profile/username
-      /\b([a-z]+[0-9]+[a-z0-9_]*)\b/gi,              // john123, user99
-      /\b([a-z]+_[a-z0-9_]+)\b/gi                     // john_doe, user_name_123
+      /@([a-zA-Z0-9_]{3,30})\b/g,
+      /(?:user|profile|u)[\/:]([a-zA-Z0-9_-]{3,30})/gi
     ];
 
     const usernames = new Set();
+
+    const excludeWords = new Set([
+      'the', 'and', 'for', 'that', 'this', 'with', 'from', 'com', 'www',
+      'http', 'https', 'html', 'page', 'search', 'google', 'gmail',
+      'media', 'image', 'images', 'video', 'about', 'contact',
+      'index', 'login', 'signup', 'account', 'settings', 'privacy',
+      'terms', 'help', 'support', 'undefined', 'null', 'true', 'false'
+    ]);
 
     patterns.forEach(pattern => {
       let match;
       while ((match = pattern.exec(text)) !== null) {
         const username = match[1] || match[0];
-        if (username.length >= 3 && username.length <= 30) {
-          // Add with @ prefix for consistency
-          usernames.add(username.startsWith('@') ? username : username);
+        if (username.length >= 3 && username.length <= 30 &&
+            !excludeWords.has(username.toLowerCase()) &&
+            !/^\d+$/.test(username)) {
+          usernames.add(username);
         }
       }
     });
 
-    // Filter out common words
-    const excludeWords = ['the', 'and', 'for', 'that', 'this', 'with', 'from', 'com', 'www', 'http', 'https'];
-    return [...usernames].filter(u => !excludeWords.includes(u.toLowerCase()));
+    return [...usernames];
   }
 
   // Extract email addresses
   function extractEmails(text) {
-    const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
+    const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
     const matches = text.match(emailPattern) || [];
-    return [...new Set(matches.map(e => e.toLowerCase()))];
+
+    const excludeDomains = ['example.com', 'test.com', 'email.com', 'domain.com', 'sentry.io'];
+
+    return [...new Set(matches.map(e => e.toLowerCase()))].filter(email => {
+      return !excludeDomains.some(d => email.endsWith(d));
+    });
   }
 
   // Extract locations (City, ST patterns and known cities)
   function extractLocations(text) {
     const patterns = [
-      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2})\b/g,  // City, ST
-      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z][a-z]+)\b/g, // City, State
-      /\b(\d{5}(?:-\d{4})?)\b/g  // ZIP codes
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z]{2})\b/g,
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s*([A-Z][a-z]+)\b/g,
+      /\b(\d{5}(?:-\d{4})?)\b/g
     ];
 
     const locations = new Set();
 
+    // Exclude known false positive patterns
+    const excludeLocationParts = [
+      'Google', 'Search', 'Sign', 'About', 'More', 'View', 'Read',
+      'Learn', 'Click', 'Terms', 'Privacy', 'Cookie'
+    ];
+
     patterns.forEach(pattern => {
       let match;
       while ((match = pattern.exec(text)) !== null) {
-        locations.add(match[0]);
+        const loc = match[0];
+        if (!excludeLocationParts.some(ex => loc.includes(ex))) {
+          locations.add(loc);
+        }
       }
     });
 
-    // Known major cities
     const cities = [
       'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix',
       'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'Austin',
@@ -110,17 +133,19 @@
     return [...phones];
   }
 
-  // Extract other patterns (URLs, social profiles, businesses)
+  // Extract other patterns (social profiles, businesses)
   function extractOtherPatterns(text) {
     const patterns = [];
 
-    // Social media profile URLs
     const socialPatterns = [
       /(?:facebook\.com|fb\.com)\/[a-zA-Z0-9._-]+/gi,
       /twitter\.com\/[a-zA-Z0-9_]+/gi,
+      /x\.com\/[a-zA-Z0-9_]+/gi,
       /instagram\.com\/[a-zA-Z0-9._]+/gi,
       /linkedin\.com\/in\/[a-zA-Z0-9_-]+/gi,
-      /tiktok\.com\/@?[a-zA-Z0-9._]+/gi
+      /tiktok\.com\/@?[a-zA-Z0-9._]+/gi,
+      /reddit\.com\/u(?:ser)?\/[a-zA-Z0-9_-]+/gi,
+      /github\.com\/[a-zA-Z0-9_-]+/gi
     ];
 
     socialPatterns.forEach(pattern => {
@@ -128,8 +153,7 @@
       patterns.push(...matches);
     });
 
-    // Business indicators (LLC, Inc, Corp, etc)
-    const businessPattern = /\b([A-Z][a-zA-Z\s&]+(?:LLC|Inc|Corp|Ltd|Co|Company|Services|Group)\.?)\b/g;
+    const businessPattern = /\b([A-Z][a-zA-Z\s&]{3,}(?:LLC|Inc|Corp|Ltd|Co|Company|Services|Group)\.?)\b/g;
     let match;
     while ((match = businessPattern.exec(text)) !== null) {
       if (match[1].length > 5 && match[1].length < 60) {
@@ -142,7 +166,6 @@
 
   // Main extraction function
   function extractAllPatterns() {
-    // Get text from search results area
     const searchResults = document.getElementById('search') ||
                          document.getElementById('rso') ||
                          document.body;
@@ -171,7 +194,7 @@
         sendResponse({ success: false, error: error.message });
       }
     }
-    return true; // Keep channel open for async response
+    return true;
   });
 
 })();

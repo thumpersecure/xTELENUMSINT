@@ -71,6 +71,18 @@ input[type="tel"]:focus {
   box-shadow: 0 0 15px rgba(0, 217, 255, 0.2);
 }
 
+input[type="tel"].input-error {
+  border-color: #ff3d00;
+  box-shadow: 0 0 15px rgba(255, 61, 0, 0.3);
+  animation: shake 0.4s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+
 input[type="tel"]::placeholder {
   color: #444;
 }

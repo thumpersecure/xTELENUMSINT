@@ -1,7 +1,7 @@
 /**
  * TELESPOT-NUMSINT - Phone Number Intelligence Search
  * Generates multiple phone number formats and searches Google for OSINT
- * v1.3.0 - Auto pattern extraction with cross-tab analysis
+ * v1.4.0 - Persistent state, stability fixes, enhanced extraction
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -43,10 +43,10 @@ document.addEventListener('DOMContentLoaded', () => {
   let searchResults = [];
   let currentFormats = [];
   let generatedReportText = '';
-  let openedTabIds = [];  // Track tabs opened by this extension
-  let searchWindowId = null;  // Track if we opened a new window
+  let openedTabIds = [];
+  let searchWindowId = null;
   let extractedPatterns = {
-    names: {},      // { pattern: { count: n, tabs: [tabIds] } }
+    names: {},
     usernames: {},
     emails: {},
     locations: {},
@@ -54,7 +54,177 @@ document.addEventListener('DOMContentLoaded', () => {
     other: {}
   };
 
-  // Copy text to clipboard
+  // ─────────────────────────────────────────────────────────────
+  // PERSISTENCE: Save & restore state via chrome.storage.local
+  // ─────────────────────────────────────────────────────────────
+
+  const STORAGE_KEY = 'telespot_state';
+
+  // Debounce helper to avoid excessive writes
+  let saveTimeout = null;
+  function debouncedSave() {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(saveState, 300);
+  }
+
+  function saveState() {
+    const state = {
+      phoneInput: phoneInput.value,
+      countryCode: countryCode.value,
+      searchMode: searchMode.value,
+      smartOperator: smartOperator.value,
+      windowMode: windowMode.value,
+      searchResults: searchResults,
+      currentFormats: currentFormats,
+      generatedReportText: generatedReportText,
+      openedTabIds: openedTabIds,
+      searchWindowId: searchWindowId,
+      extractedPatterns: extractedPatterns,
+      namesFound: namesFound.value,
+      usernamesFound: usernamesFound.value,
+      emailsFound: emailsFound.value,
+      locationsFound: locationsFound.value,
+      otherPatterns: otherPatterns.value,
+      reportHTML: reportContent.innerHTML,
+      uiState: {
+        formatsVisible: !formatsPreview.classList.contains('hidden'),
+        resultsVisible: !resultsSection.classList.contains('hidden'),
+        summaryVisible: !summarySection.classList.contains('hidden'),
+        reportSectionVisible: !reportSection.classList.contains('hidden'),
+        copyBtnVisible: !copyReportBtn.classList.contains('hidden'),
+        rescanVisible: !rescanBtn.classList.contains('hidden'),
+        summaryHTML: summaryContent.innerHTML,
+        progressWidth: progressFill.style.width,
+        progressText: progressText.textContent,
+        searchBtnText: searchBtn.innerHTML,
+        searchBtnDisabled: false
+      },
+      savedAt: Date.now()
+    };
+
+    chrome.storage.local.set({ [STORAGE_KEY]: state });
+  }
+
+  async function restoreState() {
+    try {
+      const result = await chrome.storage.local.get(STORAGE_KEY);
+      const state = result[STORAGE_KEY];
+      if (!state) return;
+
+      // Discard state older than 24 hours
+      if (Date.now() - state.savedAt > 86400000) {
+        chrome.storage.local.remove(STORAGE_KEY);
+        return;
+      }
+
+      // Restore form inputs
+      phoneInput.value = state.phoneInput || '';
+      countryCode.value = state.countryCode || '1';
+      searchMode.value = state.searchMode || 'individual';
+      smartOperator.value = state.smartOperator || 'OR';
+      windowMode.value = state.windowMode || 'newWindow';
+
+      // Restore internal state
+      searchResults = state.searchResults || [];
+      currentFormats = state.currentFormats || [];
+      generatedReportText = state.generatedReportText || '';
+      openedTabIds = state.openedTabIds || [];
+      searchWindowId = state.searchWindowId || null;
+      extractedPatterns = state.extractedPatterns || {
+        names: {}, usernames: {}, emails: {},
+        locations: {}, phones: {}, other: {}
+      };
+
+      // Restore textarea content
+      namesFound.value = state.namesFound || '';
+      usernamesFound.value = state.usernamesFound || '';
+      emailsFound.value = state.emailsFound || '';
+      locationsFound.value = state.locationsFound || '';
+      otherPatterns.value = state.otherPatterns || '';
+
+      // Restore report
+      if (state.reportHTML) {
+        reportContent.innerHTML = state.reportHTML;
+      }
+
+      // Restore UI visibility state
+      const ui = state.uiState;
+      if (ui) {
+        if (ui.formatsVisible && currentFormats.length > 0) {
+          displayFormats(currentFormats);
+        }
+        if (ui.resultsVisible) {
+          resultsSection.classList.remove('hidden');
+          progressFill.style.width = ui.progressWidth || '0%';
+          progressText.textContent = ui.progressText || '';
+        }
+        if (ui.summaryVisible) {
+          summarySection.classList.remove('hidden');
+          summaryContent.innerHTML = ui.summaryHTML || '';
+        }
+        if (ui.reportSectionVisible) {
+          reportSection.classList.remove('hidden');
+        }
+        if (ui.copyBtnVisible) {
+          copyReportBtn.classList.remove('hidden');
+        }
+        if (ui.rescanVisible) {
+          rescanBtn.classList.remove('hidden');
+        }
+        if (ui.searchBtnText && searchResults.length > 0) {
+          searchBtn.innerHTML = '<span class="btn-icon">&#128269;</span> Search Again';
+        }
+      }
+
+      // Restore count badges
+      updateCountBadge(namesCount, parseTextareaInput(namesFound.value).length, extractedPatterns.names);
+      updateCountBadge(usernamesCount, parseTextareaInput(usernamesFound.value).length, extractedPatterns.usernames);
+      updateCountBadge(emailsCount, parseTextareaInput(emailsFound.value).length, extractedPatterns.emails);
+      updateCountBadge(locationsCount, parseTextareaInput(locationsFound.value).length, extractedPatterns.locations);
+      const combinedOther = { ...extractedPatterns.phones, ...extractedPatterns.other };
+      updateCountBadge(otherCount, parseTextareaInput(otherPatterns.value).length, combinedOther);
+
+      // Validate that tracked tabs still exist
+      await cleanupStaleTabs();
+
+      updateSmartOptionsVisibility();
+    } catch (e) {
+      console.error('Error restoring state:', e);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TAB CLEANUP: Remove stale tab IDs that no longer exist
+  // ─────────────────────────────────────────────────────────────
+
+  async function cleanupStaleTabs() {
+    if (openedTabIds.length === 0) return;
+
+    const validIds = [];
+    for (const tabId of openedTabIds) {
+      try {
+        await chrome.tabs.get(tabId);
+        validIds.push(tabId);
+      } catch {
+        // Tab no longer exists
+      }
+    }
+    openedTabIds = validIds;
+
+    // Validate search window still exists
+    if (searchWindowId !== null) {
+      try {
+        await chrome.windows.get(searchWindowId);
+      } catch {
+        searchWindowId = null;
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // UTILITY FUNCTIONS
+  // ─────────────────────────────────────────────────────────────
+
   function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
       showToast('Copied to clipboard!');
@@ -63,7 +233,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Show toast notification
   function showToast(message, isError = false) {
     const existing = document.querySelector('.toast');
     if (existing) existing.remove();
@@ -76,12 +245,20 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => toast.remove(), 2000);
   }
 
-  // Parse phone number - extract only digits
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // PHONE NUMBER PARSING & FORMAT GENERATION
+  // ─────────────────────────────────────────────────────────────
+
   function parsePhoneNumber(input) {
     return input.replace(/\D/g, '');
   }
 
-  // Generate 10 search formats based on the phone number
   function generateFormats(phoneDigits, country) {
     let areaCode, exchange, subscriber;
 
@@ -94,16 +271,27 @@ document.addEventListener('DOMContentLoaded', () => {
       areaCode = '555';
       exchange = phoneDigits.slice(0, 3);
       subscriber = phoneDigits.slice(3, 7);
+    } else if (phoneDigits.length === 8) {
+      // 8-digit: treat as area(2) + exchange(3) + subscriber(3) padded
+      areaCode = '0' + phoneDigits.slice(0, 2);
+      exchange = phoneDigits.slice(2, 5);
+      subscriber = phoneDigits.slice(5, 8) + '0';
+    } else if (phoneDigits.length === 9) {
+      // 9-digit: treat as area(3) + exchange(3) + subscriber(3) padded
+      areaCode = phoneDigits.slice(0, 3);
+      exchange = phoneDigits.slice(3, 6);
+      subscriber = phoneDigits.slice(6, 9) + '0';
     } else {
-      areaCode = phoneDigits.slice(0, 3) || '555';
-      exchange = phoneDigits.slice(3, 6) || '555';
-      subscriber = phoneDigits.slice(6, 10) || '1234';
+      // Fewer than 7 digits - pad with zeros
+      const padded = phoneDigits.padEnd(10, '0');
+      areaCode = padded.slice(0, 3);
+      exchange = padded.slice(3, 6);
+      subscriber = padded.slice(6, 10);
     }
 
     const fullNumber = areaCode + exchange + subscriber;
     const fullWithCountry = country + fullNumber;
 
-    // 10 formats - adjusted per user feedback
     return [
       {
         format: `+${fullWithCountry}`,
@@ -148,7 +336,10 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
   }
 
-  // Display formats in the preview section
+  // ─────────────────────────────────────────────────────────────
+  // FORMAT DISPLAY & STATUS
+  // ─────────────────────────────────────────────────────────────
+
   function displayFormats(formats) {
     formatsList.innerHTML = '';
 
@@ -159,8 +350,8 @@ document.addEventListener('DOMContentLoaded', () => {
       div.innerHTML = `
         <span class="format-number">${index + 1}.</span>
         <span class="format-value">${escapeHtml(item.format)}</span>
-        <button class="copy-btn" data-format="${escapeHtml(item.format)}" title="Copy to clipboard">&#128203;</button>
-        <span class="format-status pending" id="status-${index}">○</span>
+        <button class="copy-btn" title="Copy to clipboard">&#128203;</button>
+        <span class="format-status pending" id="status-${index}">&#9675;</span>
       `;
       formatsList.appendChild(div);
 
@@ -173,14 +364,6 @@ document.addEventListener('DOMContentLoaded', () => {
     formatsPreview.classList.remove('hidden');
   }
 
-  // Escape HTML to prevent XSS
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // Update format status indicator
   function updateFormatStatus(index, status) {
     const statusEl = document.getElementById(`status-${index}`);
     if (!statusEl) return;
@@ -188,27 +371,29 @@ document.addEventListener('DOMContentLoaded', () => {
     statusEl.className = `format-status ${status}`;
     switch (status) {
       case 'searching':
-        statusEl.textContent = '◐';
+        statusEl.textContent = '\u25D0';
         break;
       case 'complete':
-        statusEl.textContent = '✓';
+        statusEl.textContent = '\u2713';
         break;
       case 'error':
-        statusEl.textContent = '✗';
+        statusEl.textContent = '\u2717';
         break;
       default:
-        statusEl.textContent = '○';
+        statusEl.textContent = '\u25CB';
     }
   }
 
-  // Update progress bar
   function updateProgress(completed, total) {
     const percent = (completed / total) * 100;
     progressFill.style.width = `${percent}%`;
     progressText.textContent = `${completed} / ${total} searches completed`;
   }
 
-  // Perform Google search - now supports new window mode
+  // ─────────────────────────────────────────────────────────────
+  // SEARCH EXECUTION
+  // ─────────────────────────────────────────────────────────────
+
   async function performSearch(query, index = null) {
     if (index !== null) {
       updateFormatStatus(index, 'searching');
@@ -230,21 +415,33 @@ document.addEventListener('DOMContentLoaded', () => {
         searchWindowId = newWindow.id;
         tab = newWindow.tabs[0];
       } else if (useNewWindow && searchWindowId !== null) {
-        // Add tab to existing search window
-        tab = await chrome.tabs.create({
-          url: searchUrl,
-          windowId: searchWindowId,
-          active: false
-        });
+        // Verify window still exists before adding tab to it
+        try {
+          await chrome.windows.get(searchWindowId);
+        } catch {
+          // Window was closed, create a new one
+          const newWindow = await chrome.windows.create({
+            url: searchUrl,
+            focused: false,
+            type: 'normal'
+          });
+          searchWindowId = newWindow.id;
+          tab = newWindow.tabs[0];
+        }
+        if (!tab) {
+          tab = await chrome.tabs.create({
+            url: searchUrl,
+            windowId: searchWindowId,
+            active: false
+          });
+        }
       } else {
-        // Add to current window
         tab = await chrome.tabs.create({
           url: searchUrl,
           active: false
         });
       }
 
-      // Track this tab
       openedTabIds.push(tab.id);
 
       searchResults.push({
@@ -258,9 +455,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (index !== null) {
         updateFormatStatus(index, 'complete');
       }
+
+      debouncedSave();
       return { success: true, tabId: tab.id };
     } catch (error) {
-      console.error(`Search error:`, error);
+      console.error('Search error:', error);
       if (index !== null) {
         updateFormatStatus(index, 'error');
       }
@@ -268,7 +467,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Run individual searches for each format
   async function runIndividualSearches(formats) {
     searchResults = [];
     openedTabIds = [];
@@ -291,7 +489,6 @@ document.addEventListener('DOMContentLoaded', () => {
     showSummary(formats, 'individual');
   }
 
-  // Run smart search (all formats combined)
   async function runSmartSearch(formats) {
     searchResults = [];
     openedTabIds = [];
@@ -303,30 +500,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const operator = smartOperator.value;
     const combinedQuery = formats.map(f => f.format).join(` ${operator} `);
 
-    // Mark all as searching
     formats.forEach((_, i) => updateFormatStatus(i, 'searching'));
 
     updateProgress(0, 1);
     await performSearch(combinedQuery, null);
     updateProgress(1, 1);
 
-    // Mark all as complete
     formats.forEach((_, i) => updateFormatStatus(i, 'complete'));
 
     showSummary(formats, 'smart');
   }
 
-  // Display search summary
+  // ─────────────────────────────────────────────────────────────
+  // SUMMARY DISPLAY
+  // ─────────────────────────────────────────────────────────────
+
   function showSummary(formats, mode) {
     const successCount = searchResults.filter(r => r.status === 'opened').length;
     const expectedCount = mode === 'smart' ? 1 : formats.length;
     const errorCount = expectedCount - successCount;
 
-    let modeText = mode === 'smart'
+    const modeText = mode === 'smart'
       ? `Smart Search (${smartOperator.value})`
       : 'Individual Searches';
 
-    let windowText = windowMode.value === 'newWindow' ? 'New Window' : 'Current Window';
+    const windowText = windowMode.value === 'newWindow' ? 'New Window' : 'Current Window';
 
     summaryContent.innerHTML = `
       <div class="summary-stat">
@@ -363,9 +561,14 @@ document.addEventListener('DOMContentLoaded', () => {
     reportSection.classList.remove('hidden');
     searchBtn.disabled = false;
     searchBtn.innerHTML = '<span class="btn-icon">&#128269;</span> Search Again';
+
+    debouncedSave();
   }
 
-  // Scan tabs for patterns
+  // ─────────────────────────────────────────────────────────────
+  // PATTERN SCANNING
+  // ─────────────────────────────────────────────────────────────
+
   async function scanTabs() {
     scanTabsBtn.disabled = true;
     scanStatus.classList.remove('hidden', 'complete', 'error');
@@ -381,15 +584,15 @@ document.addEventListener('DOMContentLoaded', () => {
       other: {}
     };
 
-    // Determine which tabs to scan
+    // Cleanup stale tabs before scanning
+    await cleanupStaleTabs();
+
     let tabsToScan = [];
 
     if (openedTabIds.length > 0) {
-      // Scan only tabs opened by this extension
       tabsToScan = openedTabIds;
       scanStatusText.textContent = `Scanning ${tabsToScan.length} extension tabs...`;
     } else {
-      // No tabs opened yet - scan all Google tabs
       const allTabs = await chrome.tabs.query({ url: 'https://www.google.com/*' });
       tabsToScan = allTabs.map(t => t.id);
       scanStatusText.textContent = `Scanning ${tabsToScan.length} Google tabs...`;
@@ -409,11 +612,19 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         scanStatusText.textContent = `Scanning tab ${scannedCount + 1} of ${tabsToScan.length}...`;
 
-        // Send message to content script
+        // Try injecting content script first in case tab was opened before extension loaded
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['content.js']
+          });
+        } catch {
+          // Content script may already be injected, that's fine
+        }
+
         const response = await chrome.tabs.sendMessage(tabId, { action: 'extractPatterns' });
 
         if (response && response.success) {
-          // Process extracted data
           processExtractedData(response.data, tabId);
           scannedCount++;
         } else {
@@ -425,7 +636,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // Update UI with results
     if (scannedCount > 0) {
       populatePatternFields();
       scanStatus.classList.add('complete');
@@ -437,90 +647,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     scanTabsBtn.disabled = false;
+    debouncedSave();
   }
 
-  // Process extracted data from a single tab
+  // ─────────────────────────────────────────────────────────────
+  // PATTERN PROCESSING (refactored from duplicated code)
+  // ─────────────────────────────────────────────────────────────
+
+  function mergePatternCategory(target, items, tabId) {
+    if (!items) return;
+    items.forEach(item => {
+      if (!target[item]) {
+        target[item] = { count: 0, tabs: [] };
+      }
+      if (!target[item].tabs.includes(tabId)) {
+        target[item].count++;
+        target[item].tabs.push(tabId);
+      }
+    });
+  }
+
   function processExtractedData(data, tabId) {
-    // Names
-    if (data.names) {
-      data.names.forEach(name => {
-        if (!extractedPatterns.names[name]) {
-          extractedPatterns.names[name] = { count: 0, tabs: [] };
-        }
-        if (!extractedPatterns.names[name].tabs.includes(tabId)) {
-          extractedPatterns.names[name].count++;
-          extractedPatterns.names[name].tabs.push(tabId);
-        }
-      });
-    }
-
-    // Usernames
-    if (data.usernames) {
-      data.usernames.forEach(username => {
-        if (!extractedPatterns.usernames[username]) {
-          extractedPatterns.usernames[username] = { count: 0, tabs: [] };
-        }
-        if (!extractedPatterns.usernames[username].tabs.includes(tabId)) {
-          extractedPatterns.usernames[username].count++;
-          extractedPatterns.usernames[username].tabs.push(tabId);
-        }
-      });
-    }
-
-    // Emails
-    if (data.emails) {
-      data.emails.forEach(email => {
-        if (!extractedPatterns.emails[email]) {
-          extractedPatterns.emails[email] = { count: 0, tabs: [] };
-        }
-        if (!extractedPatterns.emails[email].tabs.includes(tabId)) {
-          extractedPatterns.emails[email].count++;
-          extractedPatterns.emails[email].tabs.push(tabId);
-        }
-      });
-    }
-
-    // Locations
-    if (data.locations) {
-      data.locations.forEach(location => {
-        if (!extractedPatterns.locations[location]) {
-          extractedPatterns.locations[location] = { count: 0, tabs: [] };
-        }
-        if (!extractedPatterns.locations[location].tabs.includes(tabId)) {
-          extractedPatterns.locations[location].count++;
-          extractedPatterns.locations[location].tabs.push(tabId);
-        }
-      });
-    }
-
-    // Phone numbers
-    if (data.phones) {
-      data.phones.forEach(phone => {
-        if (!extractedPatterns.phones[phone]) {
-          extractedPatterns.phones[phone] = { count: 0, tabs: [] };
-        }
-        if (!extractedPatterns.phones[phone].tabs.includes(tabId)) {
-          extractedPatterns.phones[phone].count++;
-          extractedPatterns.phones[phone].tabs.push(tabId);
-        }
-      });
-    }
-
-    // Other patterns
-    if (data.other) {
-      data.other.forEach(item => {
-        if (!extractedPatterns.other[item]) {
-          extractedPatterns.other[item] = { count: 0, tabs: [] };
-        }
-        if (!extractedPatterns.other[item].tabs.includes(tabId)) {
-          extractedPatterns.other[item].count++;
-          extractedPatterns.other[item].tabs.push(tabId);
-        }
-      });
-    }
+    mergePatternCategory(extractedPatterns.names, data.names, tabId);
+    mergePatternCategory(extractedPatterns.usernames, data.usernames, tabId);
+    mergePatternCategory(extractedPatterns.emails, data.emails, tabId);
+    mergePatternCategory(extractedPatterns.locations, data.locations, tabId);
+    mergePatternCategory(extractedPatterns.phones, data.phones, tabId);
+    mergePatternCategory(extractedPatterns.other, data.other, tabId);
   }
 
-  // Sort patterns by frequency (multi-tab = higher priority)
   function sortByFrequency(patternObj) {
     return Object.entries(patternObj)
       .sort((a, b) => b[1].count - a[1].count)
@@ -532,29 +687,23 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   }
 
-  // Populate pattern fields with extracted data
   function populatePatternFields() {
-    // Names - sorted by frequency
     const sortedNames = sortByFrequency(extractedPatterns.names);
     namesFound.value = sortedNames.join('\n');
     updateCountBadge(namesCount, sortedNames.length, extractedPatterns.names);
 
-    // Usernames - sorted by frequency
     const sortedUsernames = sortByFrequency(extractedPatterns.usernames);
     usernamesFound.value = sortedUsernames.join('\n');
     updateCountBadge(usernamesCount, sortedUsernames.length, extractedPatterns.usernames);
 
-    // Emails - sorted by frequency (priority: multi-tab first)
     const sortedEmails = sortByFrequency(extractedPatterns.emails);
     emailsFound.value = sortedEmails.join('\n');
     updateCountBadge(emailsCount, sortedEmails.length, extractedPatterns.emails);
 
-    // Locations - sorted by frequency
     const sortedLocations = sortByFrequency(extractedPatterns.locations);
     locationsFound.value = sortedLocations.join('\n');
     updateCountBadge(locationsCount, sortedLocations.length, extractedPatterns.locations);
 
-    // Other patterns (phones + social + businesses)
     const combinedOther = { ...extractedPatterns.phones, ...extractedPatterns.other };
     const sortedOther = sortByFrequency(combinedOther);
     otherPatterns.value = sortedOther.join('\n');
@@ -563,7 +712,6 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast('Patterns extracted!');
   }
 
-  // Update count badge with priority indicator
   function updateCountBadge(badgeEl, count, patternObj) {
     if (!badgeEl) return;
 
@@ -581,26 +729,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Parse textarea input into array of non-empty lines
+  // ─────────────────────────────────────────────────────────────
+  // REPORT GENERATION
+  // ─────────────────────────────────────────────────────────────
+
   function parseTextareaInput(text) {
     return text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
   }
 
-  // Generate pattern analysis report
   function generateReport() {
     const phone = phoneInput.value.trim();
     const country = countryCode.value;
     const mode = searchMode.value;
     const timestamp = new Date().toLocaleString();
 
-    // Get pattern inputs
     const names = parseTextareaInput(namesFound.value);
     const usernames = parseTextareaInput(usernamesFound.value);
     const emails = parseTextareaInput(emailsFound.value);
     const locations = parseTextareaInput(locationsFound.value);
     const other = parseTextareaInput(otherPatterns.value);
 
-    // Separate high-priority (multi-tab) from regular
     const separateByPriority = (items) => {
       const high = items.filter(i => i.startsWith('['));
       const normal = items.filter(i => !i.startsWith('['));
@@ -610,65 +758,63 @@ document.addEventListener('DOMContentLoaded', () => {
     const emailPriority = separateByPriority(emails);
     const locationPriority = separateByPriority(locations);
 
-    // Generate plain text report for copying
     generatedReportText = `
-════════════════════════════════════════════════════════════════
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
                     TELESPOT-NUMSINT PATTERN REPORT
-════════════════════════════════════════════════════════════════
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 Generated: ${timestamp}
 
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 SEARCH PARAMETERS
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 Target Number:  ${phone}
 Country Code:   +${country}
 Search Mode:    ${mode === 'smart' ? `Smart Search (${smartOperator.value})` : 'Individual (10 tabs)'}
 Tabs Opened:    ${searchResults.length}
 Tabs Scanned:   ${openedTabIds.length || 'N/A'}
 
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 FORMAT VARIATIONS SEARCHED
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 ${currentFormats.map((f, i) => `  ${String(i + 1).padStart(2, '0')}. ${f.format}`).join('\n')}
 
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 NAMES FOUND (${names.length})
-─────────────────────────────────────────────────────────────────
-${names.length > 0 ? names.map(n => `  ● ${n}`).join('\n') : '  (No names found)'}
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+${names.length > 0 ? names.map(n => `  \u25CF ${n}`).join('\n') : '  (No names found)'}
 
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 USERNAMES FOUND (${usernames.length})
-─────────────────────────────────────────────────────────────────
-${usernames.length > 0 ? usernames.map(u => `  ● ${u}`).join('\n') : '  (No usernames found)'}
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+${usernames.length > 0 ? usernames.map(u => `  \u25CF ${u}`).join('\n') : '  (No usernames found)'}
 
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 EMAILS FOUND (${emails.length})
-─────────────────────────────────────────────────────────────────
-${emailPriority.high.length > 0 ? '  HIGH PRIORITY (multi-tab matches):\n' + emailPriority.high.map(e => `    ★ ${e}`).join('\n') + '\n' : ''}${emailPriority.normal.length > 0 ? '  Other:\n' + emailPriority.normal.map(e => `    ● ${e}`).join('\n') : ''}${emails.length === 0 ? '  (No emails found)' : ''}
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+${emailPriority.high.length > 0 ? '  HIGH PRIORITY (multi-tab matches):\n' + emailPriority.high.map(e => `    \u2605 ${e}`).join('\n') + '\n' : ''}${emailPriority.normal.length > 0 ? '  Other:\n' + emailPriority.normal.map(e => `    \u25CF ${e}`).join('\n') : ''}${emails.length === 0 ? '  (No emails found)' : ''}
 
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 LOCATIONS FOUND (${locations.length})
-─────────────────────────────────────────────────────────────────
-${locationPriority.high.length > 0 ? '  HIGH PRIORITY (multi-tab matches):\n' + locationPriority.high.map(l => `    ★ ${l}`).join('\n') + '\n' : ''}${locationPriority.normal.length > 0 ? '  Other:\n' + locationPriority.normal.map(l => `    ● ${l}`).join('\n') : ''}${locations.length === 0 ? '  (No locations found)' : ''}
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+${locationPriority.high.length > 0 ? '  HIGH PRIORITY (multi-tab matches):\n' + locationPriority.high.map(l => `    \u2605 ${l}`).join('\n') + '\n' : ''}${locationPriority.normal.length > 0 ? '  Other:\n' + locationPriority.normal.map(l => `    \u25CF ${l}`).join('\n') : ''}${locations.length === 0 ? '  (No locations found)' : ''}
 
-─────────────────────────────────────────────────────────────────
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 OTHER PATTERNS (${other.length})
-─────────────────────────────────────────────────────────────────
-${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patterns found)'}
+\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+${other.length > 0 ? other.map(o => `  \u25CF ${o}`).join('\n') : '  (No other patterns found)'}
 
-════════════════════════════════════════════════════════════════
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
                          END OF REPORT
-════════════════════════════════════════════════════════════════
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 `.trim();
 
-    // Generate HTML display
     const formatSection = (title, items, emptyMsg) => {
       if (items.length === 0) {
         return `<div class="section-title">${title} (0)</div><div class="no-data">${emptyMsg}</div>`;
       }
       return `<div class="section-title">${title} (${items.length})</div>${items.map(i => {
         const isHighPriority = i.startsWith('[');
-        return `<div class="pattern-item ${isHighPriority ? 'high-priority' : ''}">${isHighPriority ? '★' : '●'} ${escapeHtml(i)}</div>`;
+        return `<div class="pattern-item ${isHighPriority ? 'high-priority' : ''}">${isHighPriority ? '\u2605' : '\u25CF'} ${escapeHtml(i)}</div>`;
       }).join('')}`;
     };
 
@@ -688,13 +834,12 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
       </div>
     `;
 
-    // Show copy button
     copyReportBtn.classList.remove('hidden');
 
     showToast('Report generated!');
+    debouncedSave();
   }
 
-  // Copy full report to clipboard
   function copyReport() {
     if (generatedReportText) {
       copyToClipboard(generatedReportText);
@@ -703,26 +848,27 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
     }
   }
 
-  // Main search handler
+  // ─────────────────────────────────────────────────────────────
+  // MAIN SEARCH HANDLER
+  // ─────────────────────────────────────────────────────────────
+
   async function handleSearch() {
     const phone = phoneInput.value.trim();
 
     if (!phone) {
       phoneInput.focus();
-      phoneInput.style.borderColor = '#ff3d00';
-      setTimeout(() => {
-        phoneInput.style.borderColor = '';
-      }, 2000);
+      phoneInput.classList.add('input-error');
+      showToast('Enter a phone number', true);
+      setTimeout(() => phoneInput.classList.remove('input-error'), 2000);
       return;
     }
 
     const digits = parsePhoneNumber(phone);
 
     if (digits.length < 7) {
-      phoneInput.style.borderColor = '#ff3d00';
-      setTimeout(() => {
-        phoneInput.style.borderColor = '';
-      }, 2000);
+      phoneInput.classList.add('input-error');
+      showToast('Need at least 7 digits', true);
+      setTimeout(() => phoneInput.classList.remove('input-error'), 2000);
       return;
     }
 
@@ -733,7 +879,7 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
     displayFormats(formats);
 
     searchBtn.disabled = true;
-    searchBtn.innerHTML = '<span class="btn-icon">⏳</span> Searching...';
+    searchBtn.innerHTML = '<span class="btn-icon">\u23F3</span> Searching...';
 
     const mode = searchMode.value;
     if (mode === 'smart') {
@@ -743,7 +889,10 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
     }
   }
 
-  // Toggle smart options visibility
+  // ─────────────────────────────────────────────────────────────
+  // UI HELPERS
+  // ─────────────────────────────────────────────────────────────
+
   function updateSmartOptionsVisibility() {
     if (searchMode.value === 'smart') {
       smartOptions.classList.remove('hidden');
@@ -752,7 +901,10 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
     }
   }
 
-  // Event listeners
+  // ─────────────────────────────────────────────────────────────
+  // EVENT LISTENERS
+  // ─────────────────────────────────────────────────────────────
+
   searchBtn.addEventListener('click', handleSearch);
 
   phoneInput.addEventListener('keypress', (e) => {
@@ -761,21 +913,21 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
     }
   });
 
-  searchMode.addEventListener('change', updateSmartOptionsVisibility);
+  searchMode.addEventListener('change', () => {
+    updateSmartOptionsVisibility();
+    debouncedSave();
+  });
 
   generateReportBtn.addEventListener('click', generateReport);
   copyReportBtn.addEventListener('click', copyReport);
-
-  // Scan tabs button
   scanTabsBtn.addEventListener('click', scanTabs);
 
-  // Re-scan button
   rescanBtn.addEventListener('click', () => {
     rescanBtn.classList.add('hidden');
     scanTabs();
   });
 
-  // Live preview of formats as user types
+  // Save state when user modifies any input
   phoneInput.addEventListener('input', () => {
     const phone = phoneInput.value.trim();
     const digits = parsePhoneNumber(phone);
@@ -788,6 +940,7 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
     } else {
       formatsPreview.classList.add('hidden');
     }
+    debouncedSave();
   });
 
   countryCode.addEventListener('change', () => {
@@ -800,9 +953,26 @@ ${other.length > 0 ? other.map(o => `  ● ${o}`).join('\n') : '  (No other patt
       currentFormats = formats;
       displayFormats(formats);
     }
+    debouncedSave();
   });
 
-  // Initialize
+  windowMode.addEventListener('change', debouncedSave);
+  smartOperator.addEventListener('change', debouncedSave);
+
+  // Save when user edits pattern textareas
+  namesFound.addEventListener('input', debouncedSave);
+  usernamesFound.addEventListener('input', debouncedSave);
+  emailsFound.addEventListener('input', debouncedSave);
+  locationsFound.addEventListener('input', debouncedSave);
+  otherPatterns.addEventListener('input', debouncedSave);
+
+  // ─────────────────────────────────────────────────────────────
+  // INITIALIZE
+  // ─────────────────────────────────────────────────────────────
+
   phoneInput.placeholder = '555-555-1234';
   updateSmartOptionsVisibility();
+
+  // Restore previous session state
+  restoreState();
 });
