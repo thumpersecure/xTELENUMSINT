@@ -5,6 +5,7 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  const { sleep, allSettledMapLimit } = window.TelespotConcurrency || {};
   // Element references
   const phoneInput = document.getElementById('phoneInput');
   const countryCode = document.getElementById('countryCode');
@@ -200,16 +201,27 @@ document.addEventListener('DOMContentLoaded', () => {
   async function cleanupStaleTabs() {
     if (openedTabIds.length === 0) return;
 
-    const validIds = [];
-    for (const tabId of openedTabIds) {
-      try {
-        await chrome.tabs.get(tabId);
-        validIds.push(tabId);
-      } catch {
-        // Tab no longer exists
+    if (typeof allSettledMapLimit === 'function') {
+      const settled = await allSettledMapLimit(
+        openedTabIds,
+        8,
+        (tabId) => chrome.tabs.get(tabId)
+      );
+      openedTabIds = settled
+        .map((r, idx) => (r && r.status === 'fulfilled' ? openedTabIds[idx] : null))
+        .filter(Boolean);
+    } else {
+      const validIds = [];
+      for (const tabId of openedTabIds) {
+        try {
+          await chrome.tabs.get(tabId);
+          validIds.push(tabId);
+        } catch {
+          // Tab no longer exists
+        }
       }
+      openedTabIds = validIds;
     }
-    openedTabIds = validIds;
 
     // Validate search window still exists
     if (searchWindowId !== null) {
@@ -475,14 +487,53 @@ document.addEventListener('DOMContentLoaded', () => {
     summarySection.classList.add('hidden');
     reportSection.classList.add('hidden');
 
-    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const total = formats.length;
+    let completed = 0;
 
-    for (let i = 0; i < formats.length; i++) {
-      await performSearch(formats[i].format, i);
-      updateProgress(i + 1, formats.length);
+    const useNewWindow = windowMode.value === 'newWindow';
+    const maxConcurrency = useNewWindow ? 3 : 4;
 
-      if (i < formats.length - 1) {
-        await delay(500);
+    updateProgress(0, total);
+
+    // If opening in a new window, create the first tab/window deterministically
+    // so the remaining tabs can safely target the same window.
+    if (useNewWindow && formats.length > 0) {
+      await performSearch(formats[0].format, 0);
+      completed = 1;
+      updateProgress(completed, total);
+    }
+
+    const startIndex = useNewWindow ? 1 : 0;
+    const remaining = formats.slice(startIndex).map((f, i) => ({
+      format: f.format,
+      index: startIndex + i
+    }));
+
+    if (remaining.length > 0 && typeof allSettledMapLimit === 'function') {
+      await allSettledMapLimit(
+        remaining,
+        maxConcurrency,
+        async (item, pos) => {
+          if (typeof sleep === 'function') {
+            await sleep(Math.min(900, pos * 120)); // small stagger to avoid bursty opens
+          }
+          return performSearch(item.format, item.index);
+        },
+        {
+          onSettled: () => {
+            completed++;
+            updateProgress(completed, total);
+          }
+        }
+      );
+    } else {
+      for (let i = startIndex; i < formats.length; i++) {
+        await performSearch(formats[i].format, i);
+        completed++;
+        updateProgress(completed, total);
+        if (typeof sleep === 'function' && i < formats.length - 1) {
+          await sleep(250);
+        }
       }
     }
 
@@ -608,31 +659,71 @@ document.addEventListener('DOMContentLoaded', () => {
     let scannedCount = 0;
     let errorCount = 0;
 
-    for (const tabId of tabsToScan) {
+    const maxScanConcurrency = 4;
+    const total = tabsToScan.length;
+
+    const scanOneTab = async (tabId) => {
+      // Try injecting content script first in case tab was opened before extension loaded
       try {
-        scanStatusText.textContent = `Scanning tab ${scannedCount + 1} of ${tabsToScan.length}...`;
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content.js']
+        });
+      } catch {
+        // Content script may already be injected, that's fine
+      }
 
-        // Try injecting content script first in case tab was opened before extension loaded
+      // sendMessage can fail if the tab isn't ready yet; retry once.
+      let lastErr = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            files: ['content.js']
-          });
-        } catch {
-          // Content script may already be injected, that's fine
+          const response = await chrome.tabs.sendMessage(tabId, { action: 'extractPatterns' });
+          if (response && response.success) {
+            processExtractedData(response.data, tabId);
+            return true;
+          }
+          return false;
+        } catch (err) {
+          lastErr = err;
+          if (typeof sleep === 'function') await sleep(200);
         }
+      }
+      if (lastErr) throw lastErr;
+      return false;
+    };
 
-        const response = await chrome.tabs.sendMessage(tabId, { action: 'extractPatterns' });
-
-        if (response && response.success) {
-          processExtractedData(response.data, tabId);
-          scannedCount++;
-        } else {
+    if (typeof allSettledMapLimit === 'function') {
+      await allSettledMapLimit(
+        tabsToScan,
+        maxScanConcurrency,
+        async (tabId, idx) => {
+          if (typeof sleep === 'function') {
+            await sleep(Math.min(600, idx * 60)); // small stagger to reduce contention
+          }
+          return scanOneTab(tabId);
+        },
+        {
+          onSettled: (result) => {
+            if (result && result.status === 'fulfilled' && result.value === true) {
+              scannedCount++;
+            } else {
+              errorCount++;
+            }
+            scanStatusText.textContent = `Scanned ${scannedCount + errorCount} of ${total} tabs...`;
+          }
+        }
+      );
+    } else {
+      for (const tabId of tabsToScan) {
+        try {
+          scanStatusText.textContent = `Scanning tab ${scannedCount + errorCount + 1} of ${total}...`;
+          const ok = await scanOneTab(tabId);
+          if (ok) scannedCount++;
+          else errorCount++;
+        } catch (error) {
+          console.error(`Error scanning tab ${tabId}:`, error);
           errorCount++;
         }
-      } catch (error) {
-        console.error(`Error scanning tab ${tabId}:`, error);
-        errorCount++;
       }
     }
 
